@@ -35,7 +35,7 @@ try {
     python -m PyInstaller --noconfirm --clean PlantViewStudio.spec
     if ($LASTEXITCODE -ne 0) { throw "Falha na compilacao com PyInstaller." }
 
-    $distExe = Join-Path $root 'dist/PlantView Studio/PlantView Studio.exe'
+    $distExe = Join-Path $root 'dist/PlantView Studio.exe'
     if (-not (Test-Path $distExe)) {
         throw "Executavel nao encontrado em: $distExe"
     }
@@ -47,7 +47,7 @@ try {
     $testOutput = Join-Path $root 'test_dist'
     & $distExe --smoke-test $testOutput
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Smoke test frozen retornou codigo diferente de zero."
+        throw "O teste do executavel compilado falhou."
     } else {
         Write-Host "Smoke test do executavel aprovado com sucesso!"
     }

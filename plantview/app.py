@@ -4,6 +4,7 @@ import sys
 import time
 from pathlib import Path
 import numpy as np
+import vtk
 from PySide6 import QtCore, QtGui, QtWidgets as W
 from pyvistaqt import QtInteractor
 import pyvista as pv
@@ -43,7 +44,7 @@ class ImportWorker(QtCore.QThread):
         try:
             def on_progress(pct: float, msg: str) -> bool:
                 if self._cancelled:
-                    raise InterruptedError('Carregamento cancelado pelo usuário.')
+                    raise InterruptedError('Carregamento cancelado pelo usu�rio.')
                 self.progress.emit(pct, msg)
                 return True
 
@@ -62,7 +63,7 @@ class ImportWorker(QtCore.QThread):
 class Window(W.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('PlantView Studio 2026 — Maquete Federada 3D')
+        self.setWindowTitle('PlantView Studio 2026 � Maquete Federada 3D')
         self.setWindowIcon(create_navis_icon('app_logo', 64))
         self.resize(1380, 880)
 
@@ -82,53 +83,19 @@ class Window(W.QMainWindow):
         self.fps_last_time = time.time()
         self.current_fps = 60.0
 
-        # Navisworks Manage Application Stylesheet
         self.setStyleSheet("""
-            QMainWindow, QWidget {
-                background-color: #f0f0f0;
-                color: #202020;
-                font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-            }
-            QTreeWidget {
-                background-color: #ffffff;
-                border: 1px solid #d0d0d0;
-                color: #222222;
-                font-size: 11px;
-            }
-            QTreeWidget::item:selected {
-                background-color: #cce8ff;
-                color: #000000;
-            }
-            QPlainTextEdit {
-                background-color: #ffffff;
-                border: 1px solid #d0d0d0;
-                color: #333333;
-                font-family: Consolas, monospace;
-                font-size: 11px;
-            }
-            QHeaderView::section {
-                background-color: #e5e5e5;
-                border: 1px solid #dcdcdc;
-                padding: 4px;
-                font-weight: 600;
-                color: #333333;
-            }
-            QDockWidget {
-                titlebar-close-icon: url(none);
-                font-size: 11px;
-                font-weight: 600;
-            }
-            QDockWidget::title {
-                background-color: #e2e2e2;
-                border: 1px solid #d0d0d0;
-                padding: 4px 8px;
-            }
-            QStatusBar {
-                background-color: #e0e0e0;
-                border-top: 1px solid #c8c8c8;
-                color: #333333;
-                font-size: 11px;
-            }
+            QMainWindow, QWidget { background: #f3f6fa; color: #26364a; font-family: 'Segoe UI'; font-size: 12px; }
+            QTreeWidget, QPlainTextEdit { background: white; border: 1px solid #e0e7ef; border-radius: 8px; padding: 6px; selection-background-color: #deedff; selection-color: #174f94; }
+            QTreeWidget::item { padding: 5px 3px; }
+            QTreeWidget::item:selected { background: #deedff; color: #174f94; border-radius: 4px; }
+            QPlainTextEdit { font-family: 'Consolas'; font-size: 11px; }
+            QHeaderView::section { background: #edf2f8; border: none; padding: 9px; font-weight: 600; }
+            QDockWidget { font-weight: 600; }
+            QDockWidget::title { background: #e8eef6; padding: 10px 12px; border-radius: 5px; }
+            QStatusBar { background: #152b46; color: #e1ecfa; padding: 5px; font-size: 11px; }
+            QComboBox { background: white; border: 1px solid #cbd7e6; border-radius: 5px; padding: 3px 7px; }
+            QToolTip { background: #152b46; color: white; border: none; padding: 7px; }
+            QSplitter::handle { background: #e5ebf3; }
         """)
 
         # Central Widget & Layout
@@ -179,9 +146,13 @@ class Window(W.QMainWindow):
             left_clicking=False
         )
 
+        # Picking installs another style; restore our navigation after its setup.
+        self.plot.interactor.SetInteractorStyle(self.navigation)
+        self.plot.camera.ParallelProjectionOff()
+
         # Welcome text in 3D scene
         self.plot.add_text(
-            'PlantView Studio 2026\nAdicione modelos industriais (DWG • STEP • IFC • DXF)',
+            'PlantView Studio 2026\nAdicione modelos industriais (DWG � STEP � IFC � DXF)',
             name='welcome',
             font_size=13,
             color='#2a4460'
@@ -192,7 +163,7 @@ class Window(W.QMainWindow):
         self.tree.setHeaderLabels(['Hierarquia de Componentes'])
         self.tree.itemChanged.connect(self.visibility_changed)
         self.tree.itemSelectionChanged.connect(self.selection_changed)
-        self.tree_dock = W.QDockWidget('Selection Tree', self)
+        self.tree_dock = W.QDockWidget('Modelos e componentes', self)
         self.tree_dock.setWidget(self.tree)
         self.tree_dock.setMinimumWidth(300)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.tree_dock)
@@ -201,7 +172,7 @@ class Window(W.QMainWindow):
         self.log = W.QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(2000)
-        self.log_dock = W.QDockWidget('Log & Medições', self)
+        self.log_dock = W.QDockWidget('Atividade e medi��es', self)
         self.log_dock.setWidget(self.log)
         self.log_dock.setMaximumHeight(160)
         self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.log_dock)
@@ -213,9 +184,9 @@ class Window(W.QMainWindow):
 
         # Initial Status Bar Message
         self.statusBar().showMessage(
-            'Pronto | Olhar: Botão esquerdo • Pan: Botão meio • Orbit: Shift + Botão meio • Zoom: Scroll • F5: Atualizar'
+            'Pronto | Olhar: Bot�o esquerdo � Pan: Bot�o meio � Orbit: Shift + Bot�o meio � Zoom: Scroll � F5: Atualizar'
         )
-        self.log.appendPlainText('PlantView Studio 2026 v0.0.2 iniciado com renderização OpenGL acelerada por GPU.')
+        self.log.appendPlainText('PlantView Studio 2026 v0.0.2 iniciado com renderiza��o OpenGL acelerada por GPU.')
 
     def on_camera_changed(self, camera):
         """Update floating coordinate badges whenever camera moves."""
@@ -237,7 +208,7 @@ class Window(W.QMainWindow):
 
         msg = (
             f'FPS: {self.current_fps:.1f} | '
-            f'Triângulos: {self.total_triangles:,} | '
+            f'Tri�ngulos: {self.total_triangles:,} | '
             f'Atores GPU: {actors_count} | '
             f'RAM: {mem["used_ram_mb"]:.0f} MB / {mem["total_ram_mb"]:.0f} MB ({mem["load_pct"]}%) | '
             f'Modelos: {len(self.models)} federados'
@@ -247,7 +218,7 @@ class Window(W.QMainWindow):
     def add_files(self):
         paths, _ = W.QFileDialog.getOpenFileNames(
             self,
-            'Adicionar modelos na posição original (DWG, STEP, IFC, DXF)',
+            'Adicionar modelos na posi��o original (DWG, STEP, IFC, DXF)',
             '',
             'Modelos CAD (*.dwg *.step *.stp *.ifc *.dxf *.stl *.obj *.ply);;Todos (*)'
         )
@@ -284,7 +255,7 @@ class Window(W.QMainWindow):
 
         # Launch Navisworks-style Loading Dialog
         if not self.loading_dialog:
-            self.loading_dialog = NavisLoadingDialog(self, title='Loading ...')
+            self.loading_dialog = NavisLoadingDialog(self)
             self.loading_dialog.cancelled.connect(self.cancel_import)
             self.loading_dialog.show()
 
@@ -306,7 +277,7 @@ class Window(W.QMainWindow):
     def cancel_import(self):
         if self.worker:
             self.worker.cancel()
-            self.log.appendPlainText('Importação cancelada pelo usuário.')
+            self.log.appendPlainText('Importa��o cancelada pelo usu�rio.')
             self.queue.clear()
 
     def on_import_failed(self, error_msg: str):
@@ -321,6 +292,16 @@ class Window(W.QMainWindow):
         self.next_import()
 
     def add_result(self, record, parts, warnings):
+        try:
+            if not parts:
+                raise ValueError('Nenhuma geometria visualiz�vel encontrada no arquivo.')
+            self._add_result(record, parts, warnings)
+        except Exception as error:
+            self.on_import_failed(str(error))
+        finally:
+            self.tree.blockSignals(False)
+
+    def _add_result(self, record, parts, warnings):
         previous = record.pop('_replace', None)
         index = self.models.index(previous) if previous is not None else len(self.models)
 
@@ -352,10 +333,14 @@ class Window(W.QMainWindow):
             child = W.QTreeWidgetItem([name])
             child.setData(0, QtCore.Qt.UserRole, actor)
             root.addChild(child)
+            for component_name in getattr(actor, '_plantview_names', []):
+                component = W.QTreeWidgetItem([component_name])
+                component.setData(0, QtCore.Qt.UserRole, actor)
+                child.addChild(component)
 
         self.log.appendPlainText(
-            f"GPU: {stats['original_parts']} peças processadas -> {stats['gpu_actors']} atores GPU, "
-            f"{stats['instanced_parts']} instâncias em {stats['instance_groups']} grupos VRAM compartilhados."
+            f"GPU: {stats['original_parts']} pe�as processadas -> {stats['gpu_actors']} atores GPU, "
+            f"{stats['instanced_parts']} inst�ncias em {stats['instance_groups']} grupos VRAM compartilhados."
         )
 
         record['item'] = root
@@ -373,11 +358,12 @@ class Window(W.QMainWindow):
         self.tree.blockSignals(False)
         self.plot.remove_actor('welcome')
 
-        if previous is None and len(self.models) == 1:
+        if previous is None and record['visible']:
             self.plot.reset_camera()
 
+        self.plot.camera.ParallelProjectionOff()
         self.dirty = True
-        self.log.appendPlainText(f'Carregado: {len(parts)} peça(s) com cores preservadas.')
+        self.log.appendPlainText(f'Carregado: {len(parts)} pe�a(s) com cores preservadas.')
         for w in warnings[:50]:
             self.log.appendPlainText('AVISO: ' + w)
 
@@ -485,7 +471,7 @@ class Window(W.QMainWindow):
     def show_properties(self):
         """Displays properties sheet for selected item."""
         if not self.selected_actor:
-            W.QMessageBox.information(self, 'Propriedades', 'Nenhum elemento selecionado na árvore ou viewport.')
+            W.QMessageBox.information(self, 'Propriedades', 'Nenhum elemento selecionado na �rvore ou viewport.')
             return
         name = getattr(self.selected_actor, '_plantview_name', 'Desconhecido')
         layer = getattr(self.selected_actor, '_plantview_layer', '0')
@@ -495,13 +481,13 @@ class Window(W.QMainWindow):
         info = [
             f'Nome do Elemento: {name}',
             f'Camada (Layer): {layer}',
-            f'Posição X, Y, Z: {pos[0]:.4f} m, {pos[1]:.4f} m, {pos[2]:.4f} m',
+            f'Posi��o X, Y, Z: {pos[0]:.4f} m, {pos[1]:.4f} m, {pos[2]:.4f} m',
         ]
         if bounds:
             dx = bounds[1] - bounds[0]
             dy = bounds[3] - bounds[2]
             dz = bounds[5] - bounds[4]
-            info.append(f'Dimensões: Largura={dx:.4f} m, Comprimento={dy:.4f} m, Altura={dz:.4f} m')
+            info.append(f'Dimens�es: Largura={dx:.4f} m, Comprimento={dy:.4f} m, Altura={dz:.4f} m')
         W.QMessageBox.information(self, 'Propriedades do Elemento', '\n'.join(info))
 
     def show_layer_manager(self):
@@ -536,10 +522,10 @@ class Window(W.QMainWindow):
         self.measure_mode = not self.measure_mode
         self.measure_points = []
         if self.measure_mode:
-            self.statusBar().showMessage('MODO MEDIR ATIVO: Clique com botão direito ou pressione P em dois pontos da maquete.')
-            self.log.appendPlainText('MEDIR: Clique ou pressione P sobre duas superfícies para calcular a distância exata em metros.')
+            self.statusBar().showMessage('MODO MEDIR ATIVO: Clique com bot�o direito ou pressione P em dois pontos da maquete.')
+            self.log.appendPlainText('MEDIR: Clique ou pressione P sobre duas superf�cies para calcular a dist�ncia exata em metros.')
         else:
-            self.statusBar().showMessage('Medição desativada.')
+            self.statusBar().showMessage('Medi��o desativada.')
 
     def clear_measures(self):
         self.plot.remove_actor('measure')
@@ -554,7 +540,7 @@ class Window(W.QMainWindow):
             a, b = self.measure_points
             dist = np.linalg.norm(a - b)
             self.plot.add_mesh(pv.Line(a, b), color='#ffcc00', line_width=4, name='measure', pickable=False, reset_camera=False)
-            self.log.appendPlainText(f'MEDIDA: Distância = {dist:.4f} m ({dist * 1000:.1f} mm) | A={a.round(4)} | B={b.round(4)}')
+            self.log.appendPlainText(f'MEDIDA: Dist�ncia = {dist:.4f} m ({dist * 1000:.1f} mm) | A={a.round(4)} | B={b.round(4)}')
             self.measure_points = []
 
     def set_perspective(self):
@@ -573,7 +559,7 @@ class Window(W.QMainWindow):
         self.plot.render()
         info = gpu_report(self.plot)
         self.log.appendPlainText('\n' + info)
-        W.QMessageBox.information(self, 'PlantView Studio — Diagnóstico GPU', info)
+        W.QMessageBox.information(self, 'PlantView Studio � Diagn�stico GPU', info)
 
     def save(self):
         path, _ = W.QFileDialog.getSaveFileName(self, 'Salvar projeto federado', self.project_path or 'Maquete.pvproj', 'Projeto PlantView (*.pvproj)')
@@ -598,7 +584,7 @@ class Window(W.QMainWindow):
         try:
             data = load_project(path)
         except Exception as e:
-            W.QMessageBox.warning(self, 'Projeto inválido', str(e))
+            W.QMessageBox.warning(self, 'Projeto inv�lido', str(e))
             return
         if not self.confirm_discard():
             return
@@ -632,7 +618,7 @@ class Window(W.QMainWindow):
 
     def closeEvent(self, event):
         if self.worker:
-            W.QMessageBox.information(self, 'Importação em andamento', 'Aguarde o término da importação para fechar.')
+            W.QMessageBox.information(self, 'Importa��o em andamento', 'Aguarde o t�rmino da importa��o para fechar.')
             event.ignore()
             return
         if not self.confirm_discard():
@@ -655,7 +641,7 @@ def main():
         import json
         output = Path(sys.argv[sys.argv.index('--smoke-test') + 1]).resolve()
         output.mkdir(parents=True, exist_ok=True)
-        root = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[1]
+        root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1]))
         report = {'models': [], 'errors': []}
 
         def check():

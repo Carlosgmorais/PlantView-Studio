@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
 import sys
+from PyInstaller.utils.hooks import collect_dynamic_libs
 
 block_cipher = None
 
@@ -10,6 +11,9 @@ datas = [
     (str(ROOT / 'engine' / 'plantview-dwg.exe'), 'engine'),
     (str(ROOT / 'examples'), 'examples'),
     (str(ROOT / 'resources'), 'resources'),
+    (str(ROOT / 'licenses'), 'licenses'),
+    (str(ROOT / 'LICENSE'), '.'),
+    (str(ROOT / 'THIRD_PARTY.md'), '.'),
 ]
 
 hiddenimports = [
@@ -33,7 +37,7 @@ hiddenimports = [
 a = Analysis(
     ['run.py'],
     pathex=[str(ROOT)],
-    binaries=[],
+    binaries=collect_dynamic_libs('ifcopenshell'),
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -46,13 +50,19 @@ a = Analysis(
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+# Qt uses Windows ICU. The build host PATH also contains Poppler ICU, whose
+# versioned exports are incompatible with Qt's Windows ICU imports.
+a.binaries = [entry for entry in a.binaries
+              if Path(entry[0]).name.lower() not in {'icuuc.dll', 'icudt78.dll'}]
+
+pyz = PYZ(a.pure, [], cipher=block_cipher)
 
 exe = EXE(
     pyz,
     a.scripts,
-    [],
-    exclude_binaries=True,
+    a.binaries,
+    a.datas,
+    exclude_binaries=False,
     name='PlantView Studio',
     debug=False,
     bootloader_ignore_signals=False,
@@ -66,15 +76,3 @@ exe = EXE(
     entitlements_file=None,
     icon=str(ROOT / 'resources' / 'plantview.ico'),
 )
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name='PlantView Studio',
-)
-

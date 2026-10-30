@@ -16,13 +16,13 @@ class NavisRibbonGroup(W.QFrame):
         self.setObjectName('ribbonGroup')
         self.setStyleSheet("""
             QFrame#ribbonGroup {
-                background-color: #fafafa;
-                border: 1px solid #dcdcdc;
-                border-radius: 3px;
+                background-color: #ffffff;
+                border: 1px solid #e1e8f1;
+                border-radius: 8px;
                 margin: 2px;
             }
             QLabel#groupTitle {
-                color: #555555;
+                color: #64758b;
                 font-size: 10px;
                 font-weight: 500;
                 padding-bottom: 2px;
@@ -30,18 +30,18 @@ class NavisRibbonGroup(W.QFrame):
             QToolButton {
                 background-color: transparent;
                 border: 1px solid transparent;
-                border-radius: 3px;
+                border-radius: 8px;
                 padding: 4px;
                 font-size: 11px;
-                color: #222222;
+                color: #253b55;
             }
             QToolButton:hover {
-                background-color: #e5f1fb;
-                border: 1px solid #70c0e8;
+                background-color: #edf5ff;
+                border: 1px solid #b8d7fc;
             }
             QToolButton:pressed {
                 background-color: #cce4f7;
-                border: 1px solid #0078d4;
+                border: 1px solid #2878cf;
             }
         """)
 
@@ -107,31 +107,31 @@ class NavisRibbonBar(W.QWidget):
     def __init__(self, window):
         super().__init__(window)
         self.window = window
-        self.setFixedHeight(120)
+        self.setFixedHeight(144)
         self.setStyleSheet("""
             NavisRibbonBar {
-                background-color: #f3f3f3;
-                border-bottom: 1px solid #b8b8b8;
+                background-color: #f3f6fa;
+                border-bottom: 1px solid #dce5ef;
             }
             QTabWidget::pane {
                 border-top: 1px solid #d4d4d4;
-                background-color: #f8f8f8;
+                background-color: #f3f6fa;
             }
             QTabBar::tab {
-                background: #e1e1e1;
-                border: 1px solid #cccccc;
+                background: #e8eef6;
+                border: 1px solid #e8eef6;
                 border-bottom: none;
-                padding: 5px 16px;
+                padding: 7px 20px;
                 font-size: 11px;
                 font-weight: 500;
-                color: #333333;
+                color: #405773;
                 min-width: 65px;
             }
             QTabBar::tab:selected {
-                background: #f8f8f8;
-                border-color: #0078d4;
-                border-top: 2px solid #0078d4;
-                color: #004578;
+                background: #f3f6fa;
+                border-color: #2878cf;
+                border-top: 2px solid #2878cf;
+                color: #1765b4;
                 font-weight: 600;
             }
             QTabBar::tab:hover:!selected {
@@ -140,7 +140,7 @@ class NavisRibbonBar(W.QWidget):
         """)
 
         main_layout = W.QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(8, 4, 8, 6)
         main_layout.setSpacing(0)
 
         # Tabs
@@ -158,13 +158,13 @@ class NavisRibbonBar(W.QWidget):
         layout.setSpacing(6)
 
         # 1. Project Group
-        grp_proj = NavisRibbonGroup('Project', page)
-        grp_proj.add_large_button('Append', 'append', self.window.add_files, 'Adicionar modelos na maquete federada', 'Ctrl+I')
+        grp_proj = NavisRibbonGroup('PROJETO', page)
+        grp_proj.add_large_button('Adicionar', 'append', self.window.add_files, 'Adicionar modelos na maquete federada', 'Ctrl+I')
         
         v_proj = grp_proj.add_vertical_subgroup()
         b_ref = W.QToolButton()
         b_ref.setIcon(create_navis_icon('refresh', 18))
-        b_ref.setText('Refresh')
+        b_ref.setText('Atualizar')
         b_ref.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
         b_ref.clicked.connect(self.window.refresh_models)
         b_ref.setToolTip('Atualizar modelos modificados (F5)')
@@ -173,7 +173,7 @@ class NavisRibbonBar(W.QWidget):
 
         b_rst = W.QToolButton()
         b_rst.setIcon(create_navis_icon('reset', 18))
-        b_rst.setText('Reset All')
+        b_rst.setText('Enquadrar')
         b_rst.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
         b_rst.clicked.connect(self.window.plot.reset_camera)
         b_rst.setToolTip('Enquadrar todos os modelos (F)')
@@ -192,9 +192,9 @@ class NavisRibbonBar(W.QWidget):
         layout.addWidget(grp_proj)
 
         # 2. Select & Search Group
-        grp_sel = NavisRibbonGroup('Select & Search', page)
-        grp_sel.add_large_button('Select', 'select', lambda: None, 'Modo de seleção de componentes')
-        grp_sel.add_large_button('Selection\nTree', 'tree', self.window.toggle_selection_tree, 'Alternar árvore de componentes')
+        grp_sel = NavisRibbonGroup('SELE��O', page)
+        grp_sel.add_large_button('Select', 'select', lambda: None, 'Modo de sele��o de componentes')
+        grp_sel.add_large_button('Selection\nTree', 'tree', self.window.toggle_selection_tree, 'Alternar �rvore de componentes')
         v_sel = grp_sel.add_vertical_subgroup()
         b_selall = W.QToolButton()
         b_selall.setText('Select All')
@@ -207,26 +207,26 @@ class NavisRibbonBar(W.QWidget):
         layout.addWidget(grp_sel)
 
         # 3. Visibility Group
-        grp_vis = NavisRibbonGroup('Visibility', page)
+        grp_vis = NavisRibbonGroup('VISIBILIDADE', page)
         grp_vis.add_large_button('Hide', 'hide', self.window.hide_selected, 'Ocultar itens selecionados', 'Ctrl+H')
         grp_vis.add_large_button('Hide\nUnselected', 'isolate', self.window.isolate, 'Isolar itens selecionados')
         grp_vis.add_large_button('Unhide\nAll', 'unhide', self.window.show_all, 'Mostrar todos os componentes')
         layout.addWidget(grp_vis)
 
         # 4. Display Group
-        grp_disp = NavisRibbonGroup('Display', page)
+        grp_disp = NavisRibbonGroup('APAR�NCIA', page)
         grp_disp.add_large_button('Properties', 'properties', self.window.show_properties, 'Propriedades do item selecionado')
         grp_disp.add_large_button('Appearance\nProfiler', 'layers', self.window.show_layer_manager, 'Gerenciador de Cores e Camadas DWG')
         layout.addWidget(grp_disp)
 
         # 5. Tools Group
-        grp_tools = NavisRibbonGroup('Tools', page)
-        grp_tools.add_large_button('Measure', 'measure', self.window.toggle_measure, 'Medição 3D ponto-a-ponto', 'M')
-        grp_tools.add_large_button('GPU\nDiagnostics', 'gpu', self.window.show_gpu_info, 'Diagnóstico de hardware OpenGL e memória')
+        grp_tools = NavisRibbonGroup('FERRAMENTAS', page)
+        grp_tools.add_large_button('Measure', 'measure', self.window.toggle_measure, 'Medi��o 3D ponto-a-ponto', 'M')
+        grp_tools.add_large_button('GPU\nDiagnostics', 'gpu', self.window.show_gpu_info, 'Diagn�stico de hardware OpenGL e mem�ria')
         layout.addWidget(grp_tools)
 
         layout.addStretch()
-        self.tabs.addTab(page, 'Home')
+        self.tabs.addTab(page, 'In�cio')
 
     def _build_viewpoint_tab(self):
         page = W.QWidget()
@@ -236,13 +236,13 @@ class NavisRibbonBar(W.QWidget):
 
         # Camera Navigate Group
         grp_nav = NavisRibbonGroup('Navigate', page)
-        grp_nav.add_large_button('Look\nAround', 'look', lambda: None, 'Olhar livremente ao redor (Botão esquerdo)')
-        grp_nav.add_large_button('Orbit', 'orbit', lambda: None, 'Ferramenta Orbital (Shift + Botão do meio)')
+        grp_nav.add_large_button('Look\nAround', 'look', lambda: None, 'Olhar livremente ao redor (Bot�o esquerdo)')
+        grp_nav.add_large_button('Orbit', 'orbit', lambda: None, 'Ferramenta Orbital (Shift + Bot�o do meio)')
         layout.addWidget(grp_nav)
 
         # Camera Views Group
         grp_views = NavisRibbonGroup('Views', page)
-        grp_views.add_large_button('Home\nView', 'reset', self.window.plot.view_isometric, 'Vista isométrica padrão')
+        grp_views.add_large_button('Home\nView', 'reset', self.window.plot.view_isometric, 'Vista isom�trica padr�o')
         
         v_views = grp_views.add_vertical_subgroup()
         b_top = W.QToolButton()
@@ -284,8 +284,8 @@ class NavisRibbonBar(W.QWidget):
         layout.setSpacing(6)
 
         grp_meas = NavisRibbonGroup('Measure', page)
-        grp_meas.add_large_button('Point to\nPoint', 'measure', self.window.toggle_measure, 'Medir distância entre 2 superfícies')
-        grp_meas.add_large_button('Clear', 'reset', self.window.clear_measures, 'Limpar medições')
+        grp_meas.add_large_button('Point to\nPoint', 'measure', self.window.toggle_measure, 'Medir dist�ncia entre 2 superf�cies')
+        grp_meas.add_large_button('Clear', 'reset', self.window.clear_measures, 'Limpar medi��es')
         layout.addWidget(grp_meas)
 
         layout.addStretch()

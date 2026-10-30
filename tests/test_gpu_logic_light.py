@@ -38,8 +38,11 @@ class Tests(unittest.TestCase):
         try:
             parts=[('a',Mesh((i,0,0))) for i in range(5)]+[('blue',Mesh((10,0,0),rgb=(0,0,255)))]
             actors,names,stats=add_optimized_parts(Plot(),parts,False)
-            self.assertEqual(stats,dict(original_parts=6,gpu_actors=2,instance_groups=1,instanced_parts=5))
+            self.assertEqual(stats,dict(original_parts=6,gpu_actors=2,instance_groups=1,instanced_parts=5,total_triangles=6))
             self.assertEqual(calls[0],(5,(1.,0.,0.)))
             self.assertFalse(actors[0].visible)
+            self.assertEqual(len(names), len(actors))
+            self.assertEqual(names[1], 'blue')
+            self.assertEqual(len(actors[0]._plantview_names), 5)
         finally:gpu.make_instance_actor=old
 if __name__=='__main__':unittest.main(verbosity=2)

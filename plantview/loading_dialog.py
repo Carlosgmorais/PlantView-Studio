@@ -14,13 +14,13 @@ from PySide6 import QtCore, QtGui, QtWidgets as W
 class NavisLoadingDialog(W.QDialog):
     cancelled = QtCore.Signal()
 
-    def __init__(self, parent=None, title='Loading ...'):
+    def __init__(self, parent=None, title='PlantView � Abrindo modelo'):
         super().__init__(parent, QtCore.Qt.Window | QtCore.Qt.WindowTitleHint | QtCore.Qt.WindowCloseButtonHint)
         self.setWindowTitle(title)
-        self.setFixedSize(480, 160)
+        self.setMinimumSize(560, 200)
         self.setStyleSheet("""
             QDialog {
-                background-color: #f0f0f0;
+                background-color: #f5f7fb;
                 color: #1e1e1e;
                 font-family: 'Segoe UI', Tahoma, sans-serif;
             }
@@ -38,13 +38,15 @@ class NavisLoadingDialog(W.QDialog):
                 color: #2b2b2b;
             }
             QProgressBar {
-                border: 1px solid #b8b8b8;
+                border: none;
+                border-radius: 6px;
                 background-color: #e6e6e6;
                 height: 16px;
                 text-align: center;
             }
             QProgressBar::chunk {
-                background-color: #0078d4;
+                background-color: #1677d2;
+                border-radius: 6px;
             }
             QPushButton {
                 background-color: #e1e1e1;
@@ -80,7 +82,7 @@ class NavisLoadingDialog(W.QDialog):
         layout.addWidget(self.bar_main)
 
         # File & action label
-        self.file_label = W.QLabel('Loading...')
+        self.file_label = W.QLabel('Preparando modelo...')
         self.file_label.setObjectName('fileLabel')
         layout.addWidget(self.file_label)
 
@@ -94,7 +96,7 @@ class NavisLoadingDialog(W.QDialog):
         # Bottom row with Cancel button on right
         btn_layout = W.QHBoxLayout()
         btn_layout.addStretch()
-        self.cancel_btn = W.QPushButton('Cancel')
+        self.cancel_btn = W.QPushButton('Cancelar')
         self.cancel_btn.clicked.connect(self.on_cancel)
         btn_layout.addWidget(self.cancel_btn)
         layout.addLayout(btn_layout)
@@ -108,7 +110,9 @@ class NavisLoadingDialog(W.QDialog):
         if message:
             self.file_label.setText(message)
             # Alternate sub bar to give feedback
-            self.bar_sub.setValue(int(pct) % 100)
+            self.bar_sub.setRange(0, 0) if 10 <= pct < 60 else self.bar_sub.setRange(0, 100)
+            if pct >= 60:
+                self.bar_sub.setValue(int(pct))
         QtCore.QCoreApplication.processEvents()
 
     def set_file_name(self, filename: str):

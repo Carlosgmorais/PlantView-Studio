@@ -30,7 +30,7 @@ def setup_gpu_renderer(plot):
     """Enable hardware frustum culling and OpenGL optimizations on the VTK renderer."""
     renderer = plot.renderer
     culler = vtk.vtkFrustumCoverageCuller()
-    culler.SetMinimumCoverage(0.00005)
+    culler.SetMinimumCoverage(0.0)
     renderer.AddCuller(culler)
     renderer.SetUseDepthPeeling(False)
     renderer.SetUseFXAA(False)
@@ -95,18 +95,21 @@ def add_optimized_parts(plot, parts, visible=True) -> Tuple[List[Any], List[str]
         if sig is None:
             continue
         key, origin = sig
-        buckets[(key, color)].append((name, mesh, origin, layer))
+        buckets[(key, color, layer)].append((name, mesh, origin, layer))
 
-    actors, groups, instances = [], 0, 0
+    actors, names, groups, instances = [], [], 0, 0
     total_triangles = 0
-    for (_, color), items in buckets.items():
+    for (_, color, _), items in buckets.items():
         if len(items) >= 3:
             source = items[0][1].copy(deep=True)
             source.points = np.asarray(source.points) - items[0][2]
             actor = make_instance_actor(plot, source, [origin for _, _, origin, _ in items], color)
             actor.SetVisibility(visible)
             actor._plantview_layer = items[0][3]
+            actor._plantview_names = [item[0] for item in items]
+            actor._plantview_color = color
             actors.append(actor)
+            names.append(f'{items[0][0]} ({len(items)} inst�ncias)')
             groups += 1
             instances += len(items)
             for _, m, _, _ in items:
@@ -122,15 +125,17 @@ def add_optimized_parts(plot, parts, visible=True) -> Tuple[List[Any], List[str]
                 actor._plantview_color = color
                 actor._plantview_bounds = getattr(mesh, 'bounds', None)
                 actors.append(actor)
+                names.append(name)
                 total_triangles += getattr(mesh, 'n_cells', 1)
 
     stats = dict(
         original_parts=len(parts),
         gpu_actors=len(actors),
         instance_groups=groups,
+        total_triangles=total_triangles,
         instanced_parts=instances
     )
-    return actors, [name for name, _ in parts], stats
+    return actors, names, stats
 
 
 def get_system_memory_info() -> Dict[str, float]:
@@ -164,9 +169,9 @@ def gpu_report(plot) -> str:
     """Generate detailed GPU and OpenGL diagnostics."""
     rw = plot.render_window
     details = [
-        'PLANTVIEW STUDIO — DIAGNÓSTICO DE ACELERAÇÃO POR GPU',
+        'PLANTVIEW STUDIO � DIAGN�STICO DE ACELERA��O POR GPU',
         '-------------------------------------------------------',
-        'Motor de Renderização: VTK / OpenGL 3.2 Core Profile',
+        'Motor de Renderiza��o: VTK / OpenGL 3.2 Core Profile',
         f'Classe RenderWindow: {rw.GetClassName()}',
     ]
     if hasattr(rw, 'GetOpenGLSupportMessage'):
@@ -185,7 +190,7 @@ def gpu_report(plot) -> str:
 
     mem = get_system_memory_info()
     if mem['total_ram_mb'] > 0:
-        details.append(f"Memória RAM do Sistema: {mem['used_ram_mb']:.0f} MB / {mem['total_ram_mb']:.0f} MB ({mem['load_pct']}%)")
+        details.append(f"Mem�ria RAM do Sistema: {mem['used_ram_mb']:.0f} MB / {mem['total_ram_mb']:.0f} MB ({mem['load_pct']}%)")
     
     renderer = plot.renderer
     actors_count = renderer.GetActors().GetNumberOfItems()

@@ -35,18 +35,18 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "dist\PlantView Studio\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\PlantView Studio.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\resources\plantview.ico"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\resources\plantview.ico"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
 ; File association for .pvproj
 Root: HKA; Subkey: "Software\Classes\.pvproj"; ValueType: string; ValueName: ""; ValueData: "PlantView.Project"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\PlantView.Project"; ValueType: string; ValueName: ""; ValueData: "Projeto PlantView Studio"; Flags: uninsdeletekey
-Root: HKA; Subkey: "Software\Classes\PlantView.Project\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\resources\plantview.ico,0"
+Root: HKA; Subkey: "Software\Classes\PlantView.Project\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
 Root: HKA; Subkey: "Software\Classes\PlantView.Project\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 
 [Run]

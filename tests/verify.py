@@ -15,6 +15,32 @@ from plantview.readers import read_model, engine_path
 from plantview.project import save_project, load_project
 
 class Checks(unittest.TestCase):
+    def test_dwg_cache_and_native_cancellation(self):
+        from unittest.mock import patch
+        import plantview.readers as readers
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'cached.dwg'
+            subprocess.run([str(engine_path()), '--fixture', str(path)], check=True)
+            with patch.dict(os.environ, {'LOCALAPPDATA': d}):
+                read_model(path)
+                with patch.object(readers.subprocess, 'Popen', side_effect=AssertionError('Cache must bypass decoder')):
+                    parts, _ = read_model(path)
+                    self.assertEqual(len(parts), 2)
+                path.touch()
+                child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+                def cancel(pct, message):
+                    if 'decorridos' in message:
+                        raise InterruptedError('cancelled')
+                    return True
+                try:
+                    with patch.object(readers.subprocess, 'Popen', return_value=child):
+                        with self.assertRaises(InterruptedError):
+                            read_model(path, progress_callback=cancel)
+                    self.assertIsNotNone(child.poll())
+                finally:
+                    if child.poll() is None:
+                        child.kill(); child.wait()
+
     def test_project_roundtrip_and_invalid(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d)/'test.pvproj'
@@ -90,6 +116,8 @@ class GuiChecks(unittest.TestCase):
         from plantview.app import Window
         w = Window()
         w.show()
+        self.assertIs(w.plot.interactor.GetInteractorStyle(), w.navigation)
+        self.assertFalse(w.plot.camera.GetParallelProjection())
         def wait_import():
             loop = QEventLoop()
             timer = QTimer()

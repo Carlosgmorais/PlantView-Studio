@@ -1,12 +1,12 @@
 """Autodesk Navisworks Manage navigation style for VTK.
 
 Controles Navisworks:
-- Botão esquerdo arrastar: Olhar ao redor livremente (Look Around em primeira pessoa, gira no próprio eixo).
-- Botão do meio (scroll pressionado) arrastar: Pan suave (deslocamento lateral e vertical).
-- Shift + Botão do meio (scroll pressionado) arrastar: Ferramenta Orbital (Orbit clássico do Navisworks em torno do ponto de interesse).
-- Scroll (rodinha): Avançar / recuar (zoom suave na direção da visão).
-- Shift + qualquer movimento: Aumenta a velocidade de navegação.
-- Sem movimentação WASD.
+- Bot�o esquerdo arrastar: Olhar ao redor livremente (Look Around em primeira pessoa, gira no pr�prio eixo).
+- Bot�o do meio (scroll pressionado) arrastar: Pan suave (deslocamento lateral e vertical).
+- Shift + Bot�o do meio (scroll pressionado) arrastar: Ferramenta Orbital (Orbit cl�ssico do Navisworks em torno do ponto de interesse).
+- Scroll (rodinha): Avan�ar / recuar (zoom suave na dire��o da vis�o).
+- Shift + qualquer movimento: Aumenta a velocidade de navega��o.
+- Sem movimenta��o WASD.
 - F5: Atalho para atualizar modelos.
 """
 import math
@@ -45,7 +45,9 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
         renderer = self.GetCurrentRenderer() or renderers.GetFirstRenderer()
         if not renderer:
             return None, None
-        return renderer.GetActiveCamera(), renderer
+        camera = renderer.GetActiveCamera()
+        camera.ParallelProjectionOff()
+        return camera, renderer
 
     def left_down(self, obj, event):
         interactor = self.GetInteractor()
@@ -58,6 +60,7 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
         self.previous = interactor.GetEventPosition()
         # If Shift is held: Navisworks Orbit Tool!
         # If Shift is not held: Navisworks Pan Tool!
+        interactor.GetRenderWindow().SetCurrentCursor(9)
         if interactor.GetShiftKey():
             self.drag_mode = 'orbit'
         else:
@@ -71,6 +74,8 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
     def mouse_up(self, obj, event):
         self.drag_mode = None
         self.previous = None
+        if self.GetInteractor():
+            self.GetInteractor().GetRenderWindow().SetCurrentCursor(0)
 
     def key_press(self, obj, event):
         interactor = self.GetInteractor()
@@ -94,7 +99,7 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
             return
 
         # Sensitivity speed multiplier
-        speed = 3.0 if interactor.GetShiftKey() else 1.0
+        speed = 1.0
 
         if self.drag_mode == 'look':
             # Look around freely: camera rotates in place without changing its eye position
@@ -166,7 +171,7 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
         speed = 3.5 if interactor and interactor.GetShiftKey() else 1.0
         
         # Smooth step: proportional to distance, minimum 0.5m for responsiveness
-        step = max(dist * 0.16 * speed, 0.25) * direction
+        step = max(dist * 0.16 * speed, 1e-6) * direction
         movement = (view / dist) * step
         
         camera.SetPosition(*(eye + movement))

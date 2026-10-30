@@ -1,10 +1,14 @@
 """Readers return geometry in metres, preserving world placement and original CAD colors."""
 import json
+import hashlib
+import shutil
+from functools import lru_cache
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 from collections import Counter
 from typing import List, Tuple, Callable, Optional
 import numpy as np
@@ -45,66 +49,123 @@ def parse_dwg_mesh_info(name: str) -> Tuple[str, str, str]:
         handle = name
     return block_prefix, handle, layer_name
 
+@lru_cache(maxsize=4)
+def _engine_signature(path, size, modified):
+    # A one-file executable extracts DLLs with new timestamps on every launch.
+    # Hash the decoder so cache identity survives those extractions.
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
 def read_dwg(path, unit_scale=.001, progress_callback: Optional[Callable[[float, str], bool]] = None):
     engine = engine_path()
     if not engine.is_file():
         raise ValueError(f'Motor plantview-dwg.exe ausente em {engine}. Reextraia o pacote completo ou verifique a pasta engine.')
-    
+
     if progress_callback:
         progress_callback(10.0, f'Iniciando leitura DWG: {Path(path).name}...')
 
+    source = Path(path).resolve()
+    source_stat, engine_stat = source.stat(), engine.stat()
+    engine_signature = _engine_signature(str(engine), engine_stat.st_size, engine_stat.st_mtime_ns)
+    cache_key = hashlib.sha256(
+        f'v1|{source}|{source_stat.st_size}|{source_stat.st_mtime_ns}|{engine_signature}'.encode()
+    ).hexdigest()
+    cache_dir = Path(os.environ.get('LOCALAPPDATA', tempfile.gettempdir())) / 'PlantView Studio' / 'Cache'
+    cache_file = cache_dir / (cache_key + '.json')
     with tempfile.TemporaryDirectory(prefix='PlantView-') as folder:
         root = Path(folder)
         result = root / 'geometry.json'
-        
-        if progress_callback:
-            progress_callback(25.0, 'Decodificando entidades ACIS (3DSOLID, BODY, REGION)...')
-            
-        proc = subprocess.run([str(engine), str(Path(path).resolve()), str(result)],
-                              cwd=folder, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              timeout=300, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        if proc.returncode != 0 or not result.exists():
-            detail = proc.stdout.decode(errors='replace')[-2500:]
-            raise ValueError('Falha no leitor DWG experimental. O original não foi alterado.\n' + detail)
-            
-        if progress_callback:
-            progress_callback(60.0, 'Processando malha e coordenadas...')
-            
-        data = json.loads(result.read_text(encoding='utf-8-sig'))
+
+        if cache_file.is_file():
+            shutil.copyfile(cache_file, result)
+            if progress_callback:
+                progress_callback(60.0, 'Reutilizando geometria DWG em cache...')
+        else:
+            if progress_callback:
+                progress_callback(25.0, 'Decodificando entidades ACIS (3DSOLID, BODY, REGION)...')
+
+            # Poll the child so cancellation is effective during native decoding too.
+            # Redirect output to disk: a full pipe must never block the decoder.
+            with (root / 'decoder.log').open('w+b') as log:
+                proc = subprocess.Popen(
+                    [str(engine), str(Path(path).resolve()), str(result)],
+                    cwd=folder, stdout=log, stderr=subprocess.STDOUT,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                started = time.monotonic()
+                try:
+                    while proc.poll() is None:
+                        elapsed = time.monotonic() - started
+                        if progress_callback:
+                            if progress_callback(25.0, f'Decodificando DWG � {int(elapsed)} s decorridos...') is False:
+                                raise InterruptedError('Carregamento cancelado pelo usu�rio.')
+                        if elapsed > 300:
+                            raise TimeoutError('O leitor DWG excedeu 5 minutos. A decodifica��o foi encerrada; verifique o arquivo e as entidades suportadas.')
+                        time.sleep(0.2)
+                finally:
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait()
+                log.seek(0, 2)
+                log.seek(max(0, log.tell() - 2500))
+                decoder_detail = log.read().decode(errors='replace')
+            if proc.returncode != 0 or not result.exists():
+                detail = decoder_detail
+                raise ValueError('Falha no leitor DWG experimental. O original n�o foi alterado.\n' + detail)
+
+            if progress_callback:
+                progress_callback(60.0, 'Processando malha e coordenadas...')
+
+        try:
+            data = json.loads(result.read_text(encoding='utf-8-sig'))
+        except (ValueError, OSError):
+            cache_file.unlink(missing_ok=True)
+            raise ValueError('Geometria DWG inv�lida. Tente abrir novamente para reconstruir o cache.')
+        if data.get('meshes') and not cache_file.exists():
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                temporary_cache = cache_file.with_suffix('.tmp-' + str(os.getpid()))
+                shutil.copyfile(result, temporary_cache)
+                os.replace(temporary_cache, cache_file)
+            except OSError:
+                pass
+
+    if not data.get('meshes'):
+        detail = '\n'.join(data.get('warnings', [])[:12])
+        raise ValueError('O DWG n�o produziu geometria visualiz�vel. Nenhum modelo vazio foi adicionado.\n' + detail)
 
     scale = UNITS.get(data['units'], unit_scale)
     warnings = list(data.get('warnings', []))
-    warnings.insert(0, 'DWG: sólidos ACIS lidos pelo motor nativo. Coordenadas mundiais reais preservadas.')
+    warnings.insert(0, 'DWG: s�lidos ACIS lidos pelo motor nativo. Coordenadas mundiais reais preservadas.')
     if data['units'] not in UNITS:
-        warnings.append(f'Unidade DWG não reconhecida ({data["units"]}); aplicada escala {scale} m/unidade.')
+        warnings.append(f'Unidade DWG n�o reconhecida ({data["units"]}); aplicada escala {scale} m/unidade.')
 
     parts = []
     meshes = data.get('meshes', [])
     total_meshes = len(meshes)
-    
+
     for i, m in enumerate(meshes):
         if not m['points']:
             continue
         mesh = pv.PolyData(np.asarray(m['points'], dtype=float) * scale, m['faces'])
-        
+
         # Color resolution:
         # 1. Use explicit mesh color if provided and not default placeholder
         # 2. Resolve via layer name according to AutoCAD standards
         _, _, layer_name = parse_dwg_mesh_info(m['name'])
         raw_color = m.get('color')
-        
+
         if raw_color and raw_color != [190, 201, 212] and raw_color != [230, 230, 230]:
             color_rgb = raw_color
         else:
             color_rgb = list(resolve_layer_color(layer_name))
-            
+
         mesh.field_data['plantview_rgb'] = np.array([color_rgb], dtype=np.uint8)
         mesh.field_data['plantview_layer'] = np.array([layer_name])
         parts.append((m['name'], mesh))
-        
+
         if progress_callback and i % max(1, total_meshes // 10) == 0:
             pct = 60.0 + (35.0 * i / max(1, total_meshes))
-            progress_callback(pct, f'Criando atores gráficos ({i}/{total_meshes})...')
+            progress_callback(pct, f'Criando atores gr�ficos ({i}/{total_meshes})...')
 
     if progress_callback:
         progress_callback(100.0, 'Modelo DWG carregado com sucesso.')
@@ -115,7 +176,7 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
     path = Path(path)
     ext = path.suffix.lower()
     warnings = []
-    
+
     if ext == '.dwg':
         parts, warnings = read_dwg(path, unit_scale, progress_callback)
     elif ext in ('.step', '.stp'):
@@ -131,11 +192,11 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
         from OCP.TopLoc import TopLoc_Location
         reader = STEPControl_Reader()
         if reader.ReadFile(str(path)) != IFSelect_RetDone:
-            raise ValueError('Não foi possível ler o STEP.')
+            raise ValueError('N�o foi poss�vel ler o STEP.')
         reader.TransferRoots()
         shape = reader.OneShape()
         if progress_callback:
-            progress_callback(50.0, 'Triangulando superfícies B-Rep...')
+            progress_callback(50.0, 'Triangulando superf�cies B-Rep...')
         BRepMesh_IncrementalMesh(shape, .5, False, .3, True)
         explorer = TopExp_Explorer(shape, TopAbs_FACE)
         points, faces = [], []
@@ -152,9 +213,9 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
                     a,b,c = triangulation.Triangle(i).Get()
                     if face.Orientation() == TopAbs_REVERSED: b,c = c,b
                     faces.extend([3,base+a-1,base+b-1,base+c-1])
-            else: warnings.append('Face STEP sem triangulação.')
+            else: warnings.append('Face STEP sem triangula��o.')
             explorer.Next()
-        
+
         parts = []
         if points:
             mesh = pv.PolyData(np.asarray(points), faces)
@@ -206,8 +267,8 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
         doc = ezdxf.readfile(path)
         unit = int(doc.header.get('$INSUNITS', 0))
         scale = UNITS.get(unit, unit_scale)
-        if unit not in UNITS: warnings.append(f'Unidade DXF não reconhecida; escala {scale} m/unidade.')
-        
+        if unit not in UNITS: warnings.append(f'Unidade DXF n�o reconhecida; escala {scale} m/unidade.')
+
         # Build layer color table from DXF document
         dxf_layer_colors = {}
         for l in doc.layers:
@@ -217,7 +278,7 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
                 dxf_layer_colors[l.dxf.name] = ACI_TABLE[color_idx]
             else:
                 dxf_layer_colors[l.dxf.name] = resolve_layer_color(l.dxf.name)
-                
+
         parts = []
         skipped = Counter()
         for entity in recursive_decompose(doc.modelspace()):
@@ -238,7 +299,7 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
                 mesh.field_data['plantview_layer'] = np.array([layer])
                 parts.append((f'{layer} | {kind}', mesh))
             except Exception: skipped[kind] += 1
-        warnings.extend(f'{count} entidade(s) {kind} não suportada(s).' for kind, count in skipped.items())
+        warnings.extend(f'{count} entidade(s) {kind} n�o suportada(s).' for kind, count in skipped.items())
         if progress_callback:
             progress_callback(100.0, 'Modelo DXF carregado com sucesso.')
     elif ext in ('.stl', '.obj', '.ply', '.vtp'):
@@ -254,8 +315,8 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
         if progress_callback:
             progress_callback(100.0, 'Malha carregada com sucesso.')
     else:
-        raise ValueError(f'Formato {ext} não suportado. NWC/NWD/RVT exigem SDK específico.')
-        
+        raise ValueError(f'Formato {ext} n�o suportado. NWC/NWD/RVT exigem SDK espec�fico.')
+
     if not parts:
-        raise ValueError('Nenhuma geometria compatível encontrada.\n' + '\n'.join(warnings[:30]))
+        raise ValueError('Nenhuma geometria compat�vel encontrada.\n' + '\n'.join(warnings[:30]))
     return parts, warnings
