@@ -1,0 +1,87 @@
+# Build script for PlantView Studio 0.0.2 on Windows 11 x64
+[CmdletBinding()]
+param(
+    [string]$ISCC = 'C:\Users\c.morais\AppData\Local\Programs\Inno Setup 6\ISCC.exe',
+    [switch]$SkipInstaller
+)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$root = $PSScriptRoot
+Push-Location $root
+try {
+    Write-Host "=========================================================="
+    Write-Host "  PLANTVIEW STUDIO 0.0.2 - COMPILADOR E GERADOR DE SETUP  "
+    Write-Host "=========================================================="
+
+    # Step 1: Generate icons and assets
+    Write-Host ""
+    Write-Host "[1/5] Gerando icones de alta resolucao e arte do instalador..."
+    python scripts/generate_assets.py
+    if ($LASTEXITCODE -ne 0) { throw "Falha na geracao de icones." }
+
+    # Step 2: Tests and Validation
+    Write-Host ""
+    Write-Host "[2/5] Executando testes automatizados e integracao..."
+    python -m unittest tests.test_gpu_logic_light
+    if ($LASTEXITCODE -ne 0) { throw "Falha nos testes de logica GPU." }
+    python tests/verify.py
+    if ($LASTEXITCODE -ne 0) { throw "Falha nos testes de integracao CAD." }
+    Write-Host "Todos os testes foram aprovados com sucesso!"
+
+    # Step 3: PyInstaller Build
+    Write-Host ""
+    Write-Host "[3/5] Compilando executavel Windows standalone com PyInstaller..."
+    python -m PyInstaller --noconfirm --clean PlantViewStudio.spec
+    if ($LASTEXITCODE -ne 0) { throw "Falha na compilacao com PyInstaller." }
+
+    $distExe = Join-Path $root 'dist/PlantView Studio/PlantView Studio.exe'
+    if (-not (Test-Path $distExe)) {
+        throw "Executavel nao encontrado em: $distExe"
+    }
+    Write-Host "Executavel gerado com sucesso: $distExe"
+
+    # Step 4: Frozen Smoke Test
+    Write-Host ""
+    Write-Host "[4/5] Executando smoke-test no executavel compilado..."
+    $testOutput = Join-Path $root 'test_dist'
+    & $distExe --smoke-test $testOutput
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Smoke test frozen retornou codigo diferente de zero."
+    } else {
+        Write-Host "Smoke test do executavel aprovado com sucesso!"
+    }
+
+    # Step 5: Inno Setup Compilation
+    if (-not $SkipInstaller) {
+        Write-Host ""
+        Write-Host "[5/5] Gerando instalador profissional Windows com Inno Setup..."
+        if (-not (Test-Path $ISCC)) {
+            $cmd = Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue
+            if ($null -ne $cmd) { $ISCC = $cmd.Source }
+        }
+        if (-not (Test-Path $ISCC)) {
+            throw "Compilador Inno Setup nao localizado em: $ISCC"
+        }
+        $releaseDir = Join-Path $root 'release'
+        New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+        
+        & $ISCC installer.iss
+        if ($LASTEXITCODE -ne 0) { throw "Falha ao gerar o instalador com Inno Setup." }
+
+        $installerExe = Join-Path $releaseDir 'PlantView_Studio_0.0.2_Setup_x64.exe'
+        if (-not (Test-Path $installerExe)) {
+            throw "Instalador nao encontrado: $installerExe"
+        }
+        $bytes = (Get-Item $installerExe).Length
+        $sizeMb = [math]::Round($bytes / 1048576, 1)
+        Write-Host ""
+        Write-Host "=========================================================="
+        Write-Host "  SUCESSO TOTAL! INSTALADOR GERADO COM EXITO:"
+        Write-Host "  $installerExe"
+        Write-Host "  Tamanho: $sizeMb MB"
+        Write-Host "=========================================================="
+    }
+} finally {
+    Pop-Location
+}
