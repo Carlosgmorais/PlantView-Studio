@@ -8,6 +8,7 @@ from pyvistaqt import QtInteractor
 import pyvista as pv
 from .readers import read_model
 from .project import load_project, save_project
+from .gpu import optimize_actor, gpu_report, add_optimized_parts
 
 class ImportWorker(QtCore.QThread):
     loaded = QtCore.Signal(object, object, object)
@@ -24,7 +25,7 @@ class ImportWorker(QtCore.QThread):
 class Window(W.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('PlantView Studio | Maquete federada — 0.1 experimental')
+        self.setWindowTitle('PlantView Studio | Maquete federada — 0.2 GPU')
         self.resize(1320, 850)
         self.models = []
         self.queue = []
@@ -48,7 +49,16 @@ class Window(W.QMainWindow):
         self.setCentralWidget(central)
         self.plot.set_background('#101d2a', top='#294256')
         self.plot.add_axes()
-        self.plot.enable_trackball_style()
+        # Disable expensive multisampling and depth-peeling by default: performance first.
+        self.plot.disable_anti_aliasing()
+        self.plot.renderer.SetUseDepthPeeling(False)
+        self.plot.renderer.SetUseFXAA(False)
+        # VTK renders via hardware OpenGL. Camera rotates in place (look-around),
+        # instead of orbiting around the model's focal point.
+        self.plot.enable_terrain_style()  # initialize VTK interaction before custom style
+        from .navigation import MouseLookStyle
+        self.navigation = MouseLookStyle()
+        self.plot.interactor.SetInteractorStyle(self.navigation)
         self.plot.enable_surface_point_picking(callback=self.point_picked, show_message=False,
                                               show_point=False, left_clicking=False)
         self.plot.add_text('Adicione modelos para montar sua maquete\nDWG • STEP • IFC • DXF', name='welcome', font_size=14, color='#b8ccdb')
@@ -87,13 +97,14 @@ class Window(W.QMainWindow):
         action('Mostrar todos', self.show_all)
         action('Remover', self.remove_selected)
         action('Medir', self.toggle_measure)
+        action('Diagnóstico GPU', self.show_gpu_info)
         action('Ajuda', self.help)
         self.units = W.QComboBox()
         for label, scale in [('mm', .001), ('m', 1.), ('cm', .01), ('pol', .0254)]: self.units.addItem(label, scale)
         self.units.setToolTip('Unidade para malhas e DWG/DXF sem unidade reconhecida. Defina antes de adicionar.')
         toolbar.addWidget(W.QLabel('  Unidade de origem:'))
         toolbar.addWidget(self.units)
-        self.statusBar().showMessage('Pronto | Arraste: orbitar • Shift + arrastar: mover • Roda: zoom • Medir: tecla P sobre a superfície')
+        self.statusBar().showMessage('GPU OpenGL | Mouse esquerdo: olhar ao redor • Meio: pan • Scroll: avançar/recuar • Shift: rápido • F5: atualizar')
         self.log.appendPlainText('Versão experimental. DWG usa motor livre incorporado; verifique o relatório e as coordenadas antes de utilizar resultados.')
 
     def add_files(self):
@@ -130,22 +141,22 @@ class Window(W.QMainWindow):
         self.next_import()
 
     def add_result(self, record, parts, warnings):
-        colors = ['#55c7c3', '#e3b86c', '#83a9ef', '#d38ba9', '#9bc789']
         previous = record.pop('_replace', None)
         index = self.models.index(previous) if previous is not None else len(self.models)
-        color = colors[index % len(colors)]
+
         record = dict(record, actors=[])
         root = W.QTreeWidgetItem([Path(record['path']).name])
         root.setToolTip(0, record['path'])
         root.setFlags(root.flags() | QtCore.Qt.ItemIsUserCheckable)
         self.tree.blockSignals(True)
         root.setCheckState(0, QtCore.Qt.Checked if record['visible'] else QtCore.Qt.Unchecked)
-        for name, mesh in parts:
-            actor = self.plot.add_mesh(mesh, color=color, smooth_shading=False, reset_camera=False, line_width=2)
-            actor.SetVisibility(record['visible'])
-            record['actors'].append(actor)
-            child = W.QTreeWidgetItem([name])
-            root.addChild(child)
+        actors, names, stats = add_optimized_parts(self.plot, parts, visible=record['visible'])
+        record['actors'].extend(actors)
+        for name in names:
+            root.addChild(W.QTreeWidgetItem([name]))
+        self.log.appendPlainText(
+            f"GPU: {stats['original_parts']} elementos / {stats['gpu_actors']} atores, "
+            f"{stats['instanced_parts']} instâncias em {stats['instance_groups']} grupos.")
         record['item'] = root
         if previous is not None:
             for actor in previous['actors']: self.plot.remove_actor(actor)
@@ -267,10 +278,16 @@ class Window(W.QMainWindow):
         self.restore_camera = data.get('camera')
         self.enqueue(data['models'])
 
+    def show_gpu_info(self):
+        self.plot.render()
+        info = gpu_report(self.plot)
+        self.log.appendPlainText("\nDIAGNÓSTICO GPU\n" + info)
+        W.QMessageBox.information(self, "PlantView — GPU", info)
+
     def help(self):
         W.QMessageBox.information(self, 'PlantView Studio — Ajuda',
             'Adicione vários arquivos; as coordenadas originais são preservadas e convertidas para metros.\n\n'
-            'Mouse: arrastar para orbitar, Shift + arrastar para mover, roda para zoom, F para enquadrar.\n'
+            'Mouse esquerdo: olhar ao redor (camera livre); meio: pan; scroll: avancar/recuar; Shift: acelerar. F: enquadrar.\n'
             'Árvore: marque/desmarque para visibilidade. Selecione um modelo para isolar/remover.\n'
             'Medir: ative e pressione P sobre duas superfícies. Medição aproximada da malha.\n\n'
             'Atualizar modelos (F5): releia todos os arquivos após salvá-los no programa de origem. Câmera e visibilidade são mantidas; falhas conservam a geometria anterior.\n\n'

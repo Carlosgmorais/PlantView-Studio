@@ -1,5 +1,6 @@
 //! Independent read-only DWG tessellator. Geometry stays f64 in world coordinates.
 use acadrust::{CadDocument, EntityType, DwgWriter};
+use acadrust::types::Color;
 use acadrust::io::dwg::DwgReader;
 use acadrust::entities::{Entity, Solid3D};
 use acadrust::types::{Matrix4, Vector3};
@@ -8,14 +9,24 @@ use serde::Serialize;
 use std::{collections::BTreeMap, fs::File, io::BufWriter};
 
 #[derive(Serialize)]
-struct Mesh { name: String, points: Vec<[f64;3]>, faces: Vec<usize> }
+struct Mesh { name: String, color: [u8;3], points: Vec<[f64;3]>, faces: Vec<usize> }
 #[derive(Serialize, Default)]
 struct Output { units: i16, meshes: Vec<Mesh>, warnings: Vec<String>, skipped: BTreeMap<String,usize> }
 
-fn walk(doc: &CadDocument, entity: &EntityType, matrix: Matrix4, prefix: &str, depth: usize, out: &mut Output) {
+fn rgb(doc: &CadDocument, color: Color, layer: &str, parent: [u8;3]) -> [u8;3] {
+    let resolved = match color {
+        Color::ByBlock => return parent,
+        Color::ByLayer => doc.layers.get(layer).map(|l| l.color).unwrap_or(Color::Index(7)),
+        other => other,
+    };
+    if let Some((r,g,b)) = resolved.rgb() { [r,g,b] } else { parent }
+}
+
+fn walk(doc: &CadDocument, entity: &EntityType, matrix: Matrix4, prefix: &str, depth: usize, parent_color: [u8;3], out: &mut Output) {
     if depth > 32 { out.warnings.push("Bloco recursivo ou profundidade superior a 32".into()); return; }
     let common = entity.common();
     if common.invisible { return; }
+    let color = rgb(doc, common.color, &common.layer, parent_color);
     let name = format!("{}{:X} | {}", prefix, common.handle.value(), common.layer);
     if let EntityType::Insert(insert) = entity {
         let Some(block) = doc.block_records.get(&insert.block_name) else {
@@ -30,7 +41,7 @@ fn walk(doc: &CadDocument, entity: &EntityType, matrix: Matrix4, prefix: &str, d
         let b = block.base_point;
         let world = matrix * insert.get_transform().matrix * Matrix4::translation(-b.x, -b.y, -b.z);
         for child in doc.entities_in_block(&insert.block_name) {
-            walk(doc, child, world, &format!("{}{}/", prefix, insert.block_name), depth+1, out);
+            walk(doc, child, world, &format!("{}{}/", prefix, insert.block_name), depth+1, color, out);
         }
         return;
     }
@@ -54,7 +65,7 @@ fn walk(doc: &CadDocument, entity: &EntityType, matrix: Matrix4, prefix: &str, d
             let p = matrix.transform_point(Vector3::new(p[0],p[1],p[2])); [p.x,p.y,p.z]
         }).collect::<Vec<_>>();
         let faces = tess.mesh.triangles.iter().flat_map(|t| [3, t[0] as usize,t[1] as usize,t[2] as usize]).collect::<Vec<_>>();
-        if !faces.is_empty() { out.meshes.push(Mesh { name: format!("{} #{}", name,index+1), points, faces }); }
+        if !faces.is_empty() { out.meshes.push(Mesh { name: format!("{} #{}", name,index+1), color, points, faces }); }
     }
 }
 
@@ -80,7 +91,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let doc = reader.read()?;
     let mut out = Output { units: doc.header.insertion_units, ..Output::default() };
     for entity in doc.model_space_entities() {
-        walk(&doc, entity, Matrix4::identity(), "", 0, &mut out);
+        walk(&doc, entity, Matrix4::identity(), "", 0, [230,230,230], &mut out);
     }
     for (kind,count) in &out.skipped { out.warnings.push(format!("{} entidade(s) {} ignorada(s)",count,kind)); }
     serde_json::to_writer(BufWriter::new(File::create(&args[2])?), &out)?;

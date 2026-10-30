@@ -34,7 +34,12 @@ def read_dwg(path, unit_scale=.001):
     warnings.insert(0, 'DWG experimental: sólidos ACIS suportados pelo motor livre. Xrefs, objetos proxy, MINSERT e objetos especializados podem faltar. Verifique a maquete.')
     if data['units'] not in UNITS:
         warnings.append(f'Unidade DWG não reconhecida ({data["units"]}); aplicada escala {scale} m/unidade.')
-    parts = [(m['name'], pv.PolyData(np.asarray(m['points'], dtype=float)*scale, m['faces'])) for m in data['meshes'] if m['points']]
+    parts = []
+    for m in data['meshes']:
+        if not m['points']: continue
+        mesh = pv.PolyData(np.asarray(m['points'], dtype=float)*scale, m['faces'])
+        mesh.field_data['plantview_rgb'] = np.array([m.get('color', [190, 201, 212])], dtype=np.uint8)
+        parts.append((m['name'], mesh))
     return parts, warnings
 
 def read_model(path, unit_scale=.001):
