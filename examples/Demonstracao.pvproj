@@ -1,0 +1,22 @@
+{
+  "format": "PlantView",
+  "version": 1,
+  "models": [
+    {
+      "path": "equipamentos.dwg",
+      "visible": true,
+      "scale": 0.001
+    },
+    {
+      "path": "estrutura.step",
+      "visible": true,
+      "scale": 0.001
+    },
+    {
+      "path": "parede.ifc",
+      "visible": true,
+      "scale": 0.001
+    }
+  ],
+  "camera": null
+}
