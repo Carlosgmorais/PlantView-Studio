@@ -192,9 +192,9 @@ class NavisRibbonBar(W.QWidget):
         layout.addWidget(grp_proj)
 
         # 2. Select & Search Group
-        grp_sel = NavisRibbonGroup('SELE��O', page)
-        grp_sel.add_large_button('Select', 'select', lambda: None, 'Modo de sele��o de componentes')
-        grp_sel.add_large_button('Selection\nTree', 'tree', self.window.toggle_selection_tree, 'Alternar �rvore de componentes')
+        grp_sel = NavisRibbonGroup('SELEÇÃO', page)
+        grp_sel.add_large_button('Select', 'select', lambda: None, 'Modo de seleção de componentes')
+        grp_sel.add_large_button('Selection\nTree', 'tree', self.window.toggle_selection_tree, 'Alternar árvore de componentes')
         v_sel = grp_sel.add_vertical_subgroup()
         b_selall = W.QToolButton()
         b_selall.setText('Select All')
@@ -214,19 +214,19 @@ class NavisRibbonBar(W.QWidget):
         layout.addWidget(grp_vis)
 
         # 4. Display Group
-        grp_disp = NavisRibbonGroup('APAR�NCIA', page)
+        grp_disp = NavisRibbonGroup('APARÊNCIA', page)
         grp_disp.add_large_button('Properties', 'properties', self.window.show_properties, 'Propriedades do item selecionado')
         grp_disp.add_large_button('Appearance\nProfiler', 'layers', self.window.show_layer_manager, 'Gerenciador de Cores e Camadas DWG')
         layout.addWidget(grp_disp)
 
         # 5. Tools Group
         grp_tools = NavisRibbonGroup('FERRAMENTAS', page)
-        grp_tools.add_large_button('Measure', 'measure', self.window.toggle_measure, 'Medi��o 3D ponto-a-ponto', 'M')
-        grp_tools.add_large_button('GPU\nDiagnostics', 'gpu', self.window.show_gpu_info, 'Diagn�stico de hardware OpenGL e mem�ria')
+        grp_tools.add_large_button('Measure', 'measure', self.window.toggle_measure, 'Medição 3D ponto-a-ponto', 'M')
+        grp_tools.add_large_button('GPU\nDiagnostics', 'gpu', self.window.show_gpu_info, 'Diagnóstico de hardware OpenGL e memória')
         layout.addWidget(grp_tools)
 
         layout.addStretch()
-        self.tabs.addTab(page, 'In�cio')
+        self.tabs.addTab(page, 'Início')
 
     def _build_viewpoint_tab(self):
         page = W.QWidget()
@@ -236,13 +236,13 @@ class NavisRibbonBar(W.QWidget):
 
         # Camera Navigate Group
         grp_nav = NavisRibbonGroup('Navigate', page)
-        grp_nav.add_large_button('Look\nAround', 'look', lambda: None, 'Olhar livremente ao redor (Bot�o esquerdo)')
-        grp_nav.add_large_button('Orbit', 'orbit', lambda: None, 'Ferramenta Orbital (Shift + Bot�o do meio)')
+        grp_nav.add_large_button('Look\nAround', 'look', lambda: None, 'Olhar livremente ao redor (Botão esquerdo)')
+        grp_nav.add_large_button('Orbit', 'orbit', lambda: None, 'Ferramenta Orbital (Shift + Botão do meio)')
         layout.addWidget(grp_nav)
 
         # Camera Views Group
         grp_views = NavisRibbonGroup('Views', page)
-        grp_views.add_large_button('Home\nView', 'reset', self.window.plot.view_isometric, 'Vista isom�trica padr�o')
+        grp_views.add_large_button('Home\nView', 'reset', self.window.plot.view_isometric, 'Vista isométrica padrão')
         
         v_views = grp_views.add_vertical_subgroup()
         b_top = W.QToolButton()
@@ -284,8 +284,8 @@ class NavisRibbonBar(W.QWidget):
         layout.setSpacing(6)
 
         grp_meas = NavisRibbonGroup('Measure', page)
-        grp_meas.add_large_button('Point to\nPoint', 'measure', self.window.toggle_measure, 'Medir dist�ncia entre 2 superf�cies')
-        grp_meas.add_large_button('Clear', 'reset', self.window.clear_measures, 'Limpar medi��es')
+        grp_meas.add_large_button('Point to\nPoint', 'measure', self.window.toggle_measure, 'Medir distância entre 2 superfícies')
+        grp_meas.add_large_button('Clear', 'reset', self.window.clear_measures, 'Limpar medições')
         layout.addWidget(grp_meas)
 
         layout.addStretch()

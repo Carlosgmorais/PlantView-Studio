@@ -14,7 +14,7 @@ from PySide6 import QtCore, QtGui, QtWidgets as W
 class NavisLoadingDialog(W.QDialog):
     cancelled = QtCore.Signal()
 
-    def __init__(self, parent=None, title='PlantView � Abrindo modelo'):
+    def __init__(self, parent=None, title='PlantView • Abrindo modelo'):
         super().__init__(parent, QtCore.Qt.Window | QtCore.Qt.WindowTitleHint | QtCore.Qt.WindowCloseButtonHint)
         self.setWindowTitle(title)
         self.setMinimumSize(560, 200)

@@ -109,7 +109,7 @@ def add_optimized_parts(plot, parts, visible=True) -> Tuple[List[Any], List[str]
             actor._plantview_names = [item[0] for item in items]
             actor._plantview_color = color
             actors.append(actor)
-            names.append(f'{items[0][0]} ({len(items)} inst�ncias)')
+            names.append(f'{items[0][0]} ({len(items)} instâncias)')
             groups += 1
             instances += len(items)
             for _, m, _, _ in items:
@@ -169,9 +169,9 @@ def gpu_report(plot) -> str:
     """Generate detailed GPU and OpenGL diagnostics."""
     rw = plot.render_window
     details = [
-        'PLANTVIEW STUDIO � DIAGN�STICO DE ACELERA��O POR GPU',
+        'PLANTVIEW STUDIO — DIAGNÓSTICO DE ACELERAÇÃO POR GPU',
         '-------------------------------------------------------',
-        'Motor de Renderiza��o: VTK / OpenGL 3.2 Core Profile',
+        'Motor de Renderização: VTK / OpenGL 3.2 Core Profile',
         f'Classe RenderWindow: {rw.GetClassName()}',
     ]
     if hasattr(rw, 'GetOpenGLSupportMessage'):
@@ -190,7 +190,7 @@ def gpu_report(plot) -> str:
 
     mem = get_system_memory_info()
     if mem['total_ram_mb'] > 0:
-        details.append(f"Mem�ria RAM do Sistema: {mem['used_ram_mb']:.0f} MB / {mem['total_ram_mb']:.0f} MB ({mem['load_pct']}%)")
+        details.append(f"Memória RAM do Sistema: {mem['used_ram_mb']:.0f} MB / {mem['total_ram_mb']:.0f} MB ({mem['load_pct']}%)")
     
     renderer = plot.renderer
     actors_count = renderer.GetActors().GetNumberOfItems()

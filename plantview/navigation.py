@@ -1,12 +1,12 @@
 """Autodesk Navisworks Manage navigation style for VTK.
 
 Controles Navisworks:
-- Bot�o esquerdo arrastar: Olhar ao redor livremente (Look Around em primeira pessoa, gira no pr�prio eixo).
-- Bot�o do meio (scroll pressionado) arrastar: Pan suave (deslocamento lateral e vertical).
-- Shift + Bot�o do meio (scroll pressionado) arrastar: Ferramenta Orbital (Orbit cl�ssico do Navisworks em torno do ponto de interesse).
-- Scroll (rodinha): Avan�ar / recuar (zoom suave na dire��o da vis�o).
-- Shift + qualquer movimento: Aumenta a velocidade de navega��o.
-- Sem movimenta��o WASD.
+- Botão esquerdo arrastar: Olhar ao redor livremente (Look Around em primeira pessoa, gira no próprio eixo).
+- Botão do meio (scroll pressionado) arrastar: Pan suave (deslocamento lateral e vertical).
+- Shift + Botão do meio (scroll pressionado) arrastar: Ferramenta Orbital (Orbit clássico do Navisworks em torno do ponto de interesse).
+- Scroll (rodinha): Avançar / recuar (zoom suave na direção da visão).
+- Shift + qualquer movimento: Aumenta a velocidade de navegação.
+- Sem movimentação WASD.
 - F5: Atalho para atualizar modelos.
 """
 import math
