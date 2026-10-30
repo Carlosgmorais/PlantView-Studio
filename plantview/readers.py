@@ -130,8 +130,16 @@ def read_dwg(path, unit_scale=.001, progress_callback: Optional[Callable[[float,
                 pass
 
     if not data.get('meshes'):
+        skipped_summary = []
+        for k, v in data.get('skipped', {}).items():
+            skipped_summary.append(f"{v} {k}")
+        ent_desc = f"Entidades no arquivo: {', '.join(skipped_summary[:8])}." if skipped_summary else ""
         detail = '\n'.join(data.get('warnings', [])[:12])
-        raise ValueError('O DWG não produziu geometria visualizável. Nenhum modelo vazio foi adicionado.\n' + detail)
+        raise ValueError(
+            f'O arquivo DWG não produziu sólidos 3D ACIS visualizáveis.\n'
+            f'{ent_desc}\n'
+            f'{detail}'
+        )
 
     scale = UNITS.get(data['units'], unit_scale)
     warnings = list(data.get('warnings', []))
@@ -144,9 +152,13 @@ def read_dwg(path, unit_scale=.001, progress_callback: Optional[Callable[[float,
     total_meshes = len(meshes)
 
     for i, m in enumerate(meshes):
-        if not m['points']:
+        points = m.get('points')
+        if not points:
             continue
-        mesh = pv.PolyData(np.asarray(m['points'], dtype=float) * scale, m['faces'])
+        pts = np.asarray(points, dtype=float)
+        if scale != 1.0:
+            pts = pts * scale
+        mesh = pv.PolyData(pts, m['faces'])
 
         # Color resolution:
         # 1. Use explicit mesh color if provided and not default placeholder
@@ -163,9 +175,9 @@ def read_dwg(path, unit_scale=.001, progress_callback: Optional[Callable[[float,
         mesh.field_data['plantview_layer'] = np.array([layer_name])
         parts.append((m['name'], mesh))
 
-        if progress_callback and i % max(1, total_meshes // 10) == 0:
+        if progress_callback and (i % max(1, total_meshes // 10) == 0 or i == total_meshes - 1):
             pct = 60.0 + (35.0 * i / max(1, total_meshes))
-            progress_callback(pct, f'Criando atores gráficos ({i}/{total_meshes})...')
+            progress_callback(pct, f'Criando geometria ({i+1}/{total_meshes})...')
 
     if progress_callback:
         progress_callback(100.0, 'Modelo DWG carregado com sucesso.')

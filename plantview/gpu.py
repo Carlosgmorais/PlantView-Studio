@@ -84,7 +84,7 @@ def make_instance_actor(plot, source, origins, color):
 
 
 def add_optimized_parts(plot, parts, visible=True) -> Tuple[List[Any], List[str], Dict[str, Any]]:
-    """Instance same-color translated clones, retain all names in tree."""
+    """Instance same-color translated clones, batch large industrial meshes, retain all names in tree."""
     buckets = defaultdict(list)
     for name, mesh in parts:
         color_data = mesh.field_data.get('plantview_rgb')
@@ -99,8 +99,11 @@ def add_optimized_parts(plot, parts, visible=True) -> Tuple[List[Any], List[str]
 
     actors, names, groups, instances = [], [], 0, 0
     total_triangles = 0
-    for (_, color, _), items in buckets.items():
+    unique_items_by_layer_color = defaultdict(list)
+
+    for (_, color, layer), items in buckets.items():
         if len(items) >= 3:
+            # GPU Instancing with vtkGlyph3DMapper for 3+ identical repeated items
             source = items[0][1].copy(deep=True)
             source.points = np.asarray(source.points) - items[0][2]
             actor = make_instance_actor(plot, source, [origin for _, _, origin, _ in items], color)
@@ -115,18 +118,43 @@ def add_optimized_parts(plot, parts, visible=True) -> Tuple[List[Any], List[str]
             for _, m, _, _ in items:
                 total_triangles += getattr(m, 'n_cells', 1)
         else:
-            for name, mesh, _, layer in items:
-                actor = plot.add_mesh(mesh, color=color, smooth_shading=False,
+            unique_items_by_layer_color[(layer, color)].extend(items)
+
+    for (layer, color), items in unique_items_by_layer_color.items():
+        if len(parts) > 30 and hasattr(items[0][1], 'merge') and len(items) > 1:
+            # High-performance batching: merge non-instanced meshes of same (layer, color)
+            # into a single compound PolyData actor. Reduces draw calls from thousands to dozens!
+            try:
+                mesh_list = [m for _, m, _, _ in items]
+                merged_mesh = items[0][1].copy(deep=True).merge(mesh_list[1:])
+                actor = plot.add_mesh(merged_mesh, color=color, smooth_shading=False,
                                       reset_camera=False, render=False)
                 optimize_actor(actor)
                 actor.SetVisibility(visible)
-                actor._plantview_name = name
+                actor._plantview_name = f'Camada: {layer} ({len(items)} peças)'
+                actor._plantview_names = [item[0] for item in items]
                 actor._plantview_layer = layer
                 actor._plantview_color = color
-                actor._plantview_bounds = getattr(mesh, 'bounds', None)
+                actor._plantview_bounds = getattr(merged_mesh, 'bounds', None)
                 actors.append(actor)
-                names.append(name)
-                total_triangles += getattr(mesh, 'n_cells', 1)
+                names.append(f'{layer} ({len(items)} peças)')
+                total_triangles += getattr(merged_mesh, 'n_cells', 1)
+                continue
+            except Exception:
+                pass
+
+        for name, mesh, _, lyr in items:
+            actor = plot.add_mesh(mesh, color=color, smooth_shading=False,
+                                  reset_camera=False, render=False)
+            optimize_actor(actor)
+            actor.SetVisibility(visible)
+            actor._plantview_name = name
+            actor._plantview_layer = lyr
+            actor._plantview_color = color
+            actor._plantview_bounds = getattr(mesh, 'bounds', None)
+            actors.append(actor)
+            names.append(name)
+            total_triangles += getattr(mesh, 'n_cells', 1)
 
     stats = dict(
         original_parts=len(parts),

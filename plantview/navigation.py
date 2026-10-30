@@ -52,15 +52,16 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
     def left_down(self, obj, event):
         interactor = self.GetInteractor()
         self.previous = interactor.GetEventPosition()
-        # Left drag is first-person look-around (rotating camera in place)
         self.drag_mode = 'look'
+        if interactor and interactor.GetRenderWindow():
+            interactor.GetRenderWindow().SetDesiredUpdateRate(30.0)
 
     def middle_down(self, obj, event):
         interactor = self.GetInteractor()
         self.previous = interactor.GetEventPosition()
-        # If Shift is held: Navisworks Orbit Tool!
-        # If Shift is not held: Navisworks Pan Tool!
-        interactor.GetRenderWindow().SetCurrentCursor(9)
+        if interactor and interactor.GetRenderWindow():
+            interactor.GetRenderWindow().SetCurrentCursor(9)
+            interactor.GetRenderWindow().SetDesiredUpdateRate(30.0)
         if interactor.GetShiftKey():
             self.drag_mode = 'orbit'
         else:
@@ -70,12 +71,17 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
         interactor = self.GetInteractor()
         self.previous = interactor.GetEventPosition()
         self.drag_mode = 'look'
+        if interactor and interactor.GetRenderWindow():
+            interactor.GetRenderWindow().SetDesiredUpdateRate(30.0)
 
     def mouse_up(self, obj, event):
         self.drag_mode = None
         self.previous = None
-        if self.GetInteractor():
-            self.GetInteractor().GetRenderWindow().SetCurrentCursor(0)
+        interactor = self.GetInteractor()
+        if interactor and interactor.GetRenderWindow():
+            interactor.GetRenderWindow().SetCurrentCursor(0)
+            interactor.GetRenderWindow().SetDesiredUpdateRate(0.001)
+            interactor.Render()
 
     def key_press(self, obj, event):
         interactor = self.GetInteractor()
@@ -98,54 +104,98 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
         if not camera or not renderer:
             return
 
-        # Sensitivity speed multiplier
-        speed = 1.0
+        # Sensitivity speed multiplier (Shift accelerates navigation)
+        speed = 2.5 if interactor.GetShiftKey() else 1.0
 
         if self.drag_mode == 'look':
-            # Look around freely: camera rotates in place without changing its eye position
-            eye = np.array(camera.GetPosition())
-            camera.Azimuth(-dx * 0.22 * speed)
-            camera.Elevation(-dy * 0.22 * speed)
-            camera.OrthogonalizeViewUp()
-            
-            # Restore eye position by offsetting focal point
-            disp = eye - np.array(camera.GetPosition())
+            # Autodesk Navisworks First-Person Look Around:
+            # - Eye stays strictly locked at its current 3D position (no orbit, no translation)
+            # - Left/Right mouse moves rotate Yaw around global Z-up axis [0, 0, 1]
+            # - Up/Down mouse moves rotate Pitch around local camera Right axis
+            # - Pitch is clamped to prevent flipping or horizon inversion
+            # - Horizon never tilts (ViewUp is maintained upright)
+            eye = np.array(camera.GetPosition(), dtype=float)
+            focal = np.array(camera.GetFocalPoint(), dtype=float)
+            view_vec = focal - eye
+            dist = np.linalg.norm(view_vec)
+            if dist < 1e-6:
+                dist = 1.0
+                view_vec = np.array([1.0, 0.0, 0.0])
+
+            horiz_dist = np.hypot(view_vec[0], view_vec[1])
+            yaw = math.atan2(view_vec[1], view_vec[0])
+            pitch = math.atan2(view_vec[2], max(horiz_dist, 1e-9))
+
+            sens = 0.004 * speed
+            yaw -= dx * sens
+            pitch = np.clip(pitch + dy * sens, -math.radians(88.5), math.radians(88.5))
+
+            cos_pitch = math.cos(pitch)
+            new_dir = np.array([
+                cos_pitch * math.cos(yaw),
+                cos_pitch * math.sin(yaw),
+                math.sin(pitch)
+            ], dtype=float)
+
             camera.SetPosition(*eye)
-            camera.SetFocalPoint(*(np.array(camera.GetFocalPoint()) + disp))
+            camera.SetFocalPoint(*(eye + new_dir * dist))
+            camera.SetViewUp(0.0, 0.0, 1.0)
 
         elif self.drag_mode == 'orbit':
-            # Navisworks Orbit Tool: rotates camera around the focal point / center of interest
-            camera.Azimuth(-dx * 0.35 * speed)
-            camera.Elevation(-dy * 0.35 * speed)
-            camera.OrthogonalizeViewUp()
+            # Autodesk Navisworks Orbit Tool:
+            # - Rotates the camera around the focal point preserving Z-up upright horizon
+            eye = np.array(camera.GetPosition(), dtype=float)
+            focal = np.array(camera.GetFocalPoint(), dtype=float)
+            view_vec = eye - focal
+            dist = np.linalg.norm(view_vec)
+            if dist < 1e-6:
+                dist = 1.0
+                view_vec = np.array([1.0, 0.0, 0.0])
+
+            horiz_dist = np.hypot(view_vec[0], view_vec[1])
+            yaw = math.atan2(view_vec[1], view_vec[0])
+            pitch = math.atan2(view_vec[2], max(horiz_dist, 1e-9))
+
+            sens = 0.005 * speed
+            yaw += dx * sens
+            pitch = np.clip(pitch - dy * sens, -math.radians(88.5), math.radians(88.5))
+
+            cos_pitch = math.cos(pitch)
+            new_offset = np.array([
+                cos_pitch * math.cos(yaw),
+                cos_pitch * math.sin(yaw),
+                math.sin(pitch)
+            ], dtype=float) * dist
+
+            camera.SetPosition(*(focal + new_offset))
+            camera.SetFocalPoint(*focal)
+            camera.SetViewUp(0.0, 0.0, 1.0)
 
         elif self.drag_mode == 'pan':
-            # Pan: smooth lateral and vertical translation
-            eye = np.array(camera.GetPosition())
-            focal = np.array(camera.GetFocalPoint())
+            # Navisworks Pan: smooth lateral and vertical translation
+            eye = np.array(camera.GetPosition(), dtype=float)
+            focal = np.array(camera.GetFocalPoint(), dtype=float)
             view_vec = focal - eye
             dist = max(np.linalg.norm(view_vec), 0.01)
             direction = view_vec / dist
-            
-            up = np.array(camera.GetViewUp())
-            up_norm = np.linalg.norm(up)
-            if up_norm > 1e-12:
-                up = up / up_norm
-            else:
+
+            up = np.array(camera.GetViewUp(), dtype=float)
+            if np.linalg.norm(up) < 1e-6:
                 up = np.array([0.0, 0.0, 1.0])
-                
-            right = np.cross(direction, up)
-            right_norm = np.linalg.norm(right)
-            if right_norm > 1e-12:
-                right = right / right_norm
             else:
+                up = up / np.linalg.norm(up)
+
+            right = np.cross(direction, up)
+            if np.linalg.norm(right) < 1e-6:
                 right = np.array([1.0, 0.0, 0.0])
+            else:
+                right = right / np.linalg.norm(right)
 
             rw_size = interactor.GetRenderWindow().GetSize()
             height = max(rw_size[1], 1)
             step = 2.0 * dist * math.tan(math.radians(camera.GetViewAngle()) / 2.0) / height
             offset = (-dx * right - dy * up) * step * speed
-            
+
             camera.SetPosition(*(eye + offset))
             camera.SetFocalPoint(*(focal + offset))
 
@@ -160,18 +210,18 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
         if not camera or not renderer:
             return
 
-        eye = np.array(camera.GetPosition())
-        focal = np.array(camera.GetFocalPoint())
+        eye = np.array(camera.GetPosition(), dtype=float)
+        focal = np.array(camera.GetFocalPoint(), dtype=float)
         view = focal - eye
         dist = np.linalg.norm(view)
         if dist < 1e-9:
             return
 
         interactor = self.GetInteractor()
-        speed = 3.5 if interactor and interactor.GetShiftKey() else 1.0
+        speed = 2.5 if interactor and interactor.GetShiftKey() else 1.0
         
-        # Smooth step: proportional to distance, minimum 0.5m for responsiveness
-        step = max(dist * 0.16 * speed, 1e-6) * direction
+        # Smooth navigation: move along viewing direction with proportional step
+        step = max(dist * 0.15 * speed, 0.05) * direction
         movement = (view / dist) * step
         
         camera.SetPosition(*(eye + movement))
