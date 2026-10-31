@@ -1,0 +1,78 @@
+# -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
+import sys
+from PyInstaller.utils.hooks import collect_dynamic_libs
+
+block_cipher = None
+
+ROOT = Path.cwd()
+
+datas = [
+    (str(ROOT / 'engine' / 'plantview-dwg.exe'), 'engine'),
+    (str(ROOT / 'examples'), 'examples'),
+    (str(ROOT / 'resources'), 'resources'),
+    (str(ROOT / 'licenses'), 'licenses'),
+    (str(ROOT / 'LICENSE'), '.'),
+    (str(ROOT / 'THIRD_PARTY.md'), '.'),
+]
+
+hiddenimports = [
+    'pyvistaqt',
+    'pyvista',
+    'vtk',
+    'vtkmodules',
+    'vtkmodules.all',
+    'vtkmodules.vtkRenderingOpenGL2',
+    'vtkmodules.vtkInteractionStyle',
+    'vtkmodules.vtkRenderingFreeType',
+    'PySide6',
+    'PySide6.QtCore',
+    'PySide6.QtGui',
+    'PySide6.QtWidgets',
+    'ifcopenshell',
+    'ezdxf',
+    'unittest',
+]
+
+a = Analysis(
+    ['run.py'],
+    pathex=[str(ROOT)],
+    binaries=collect_dynamic_libs('ifcopenshell'),
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=['tkinter'],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+# Qt uses Windows ICU. The build host PATH also contains Poppler ICU, whose
+# versioned exports are incompatible with Qt's Windows ICU imports.
+a.binaries = [entry for entry in a.binaries
+              if Path(entry[0]).name.lower() not in {'icuuc.dll', 'icudt78.dll'}]
+
+pyz = PYZ(a.pure, [], cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    exclude_binaries=False,
+    name='PlantView Studio',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=str(ROOT / 'resources' / 'plantview.ico'),
+)

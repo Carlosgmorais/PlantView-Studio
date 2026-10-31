@@ -4,10 +4,15 @@ __pycache__/
 venv/
 dist/
 build/
+release/
 dwg-reader/target/
 *.spec.bak
 *.log
-*.exe
 *.zip
 *.pvproj
+test_*/
+test_dist*
+test_out.json
+!engine/plantview-dwg.exe
+!examples/Demonstracao.pvproj
 !.gitkeep
