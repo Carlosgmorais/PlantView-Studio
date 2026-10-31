@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from collections import Counter
 from typing import List, Tuple, Callable, Optional
 import numpy as np
@@ -16,6 +17,25 @@ import pyvista as pv
 from .colors import resolve_layer_color, resolve_ifc_color, ACI_TABLE
 
 UNITS = {1: .0254, 2: .3048, 4: .001, 5: .01, 6: 1., 7: 1000.}
+
+def attach_mesh_metadata(mesh: pv.PolyData, layer_name: str, color_rgb=None):
+    """Safely attach layer name and color metadata to a mesh without triggering VTK ASCII errors.
+    VTK string arrays only support 7-bit ASCII characters. Storing non-ASCII strings
+    (e.g., accented characters in Portuguese layer names or filenames) raises:
+    ValueError: String array contains non-ASCII characters that are not supported by VTK.
+    We attach the exact original layer string as a Python attribute `_plantview_layer`,
+    and store an ASCII-normalized version in `field_data['plantview_layer']` for VTK serialization.
+    """
+    layer_str = str(layer_name) if layer_name is not None else '0'
+    mesh._plantview_layer = layer_str
+    if color_rgb is not None:
+        rgb_arr = np.array([color_rgb], dtype=np.uint8)
+        mesh.field_data['plantview_rgb'] = rgb_arr
+        mesh._plantview_rgb = rgb_arr
+    ascii_layer = unicodedata.normalize('NFKD', layer_str).encode('ascii', 'ignore').decode('ascii')
+    if not ascii_layer:
+        ascii_layer = '0'
+    mesh.field_data['plantview_layer'] = np.array([ascii_layer])
 
 def engine_path():
     root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1]))
@@ -171,8 +191,7 @@ def read_dwg(path, unit_scale=.001, progress_callback: Optional[Callable[[float,
         else:
             color_rgb = list(resolve_layer_color(layer_name))
 
-        mesh.field_data['plantview_rgb'] = np.array([color_rgb], dtype=np.uint8)
-        mesh.field_data['plantview_layer'] = np.array([layer_name])
+        attach_mesh_metadata(mesh, layer_name, color_rgb)
         parts.append((m['name'], mesh))
 
         if progress_callback and (i % max(1, total_meshes // 10) == 0 or i == total_meshes - 1):
@@ -234,8 +253,7 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
             # Default metallic steel blue for STEP engineering models
             layer = 'ESTRUTURA' if 'ESTRUTURA' in path.stem.upper() else 'EQUIP'
             color = resolve_layer_color(layer)
-            mesh.field_data['plantview_rgb'] = np.array([color], dtype=np.uint8)
-            mesh.field_data['plantview_layer'] = np.array([layer])
+            attach_mesh_metadata(mesh, layer, color)
             parts.append((path.stem, mesh))
         if progress_callback:
             progress_callback(100.0, 'Modelo STEP carregado com sucesso.')
@@ -260,8 +278,7 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
                 if len(points):
                     mesh = pv.PolyData(points, faces)
                     color = resolve_ifc_color(entity.is_a())
-                    mesh.field_data['plantview_rgb'] = np.array([color], dtype=np.uint8)
-                    mesh.field_data['plantview_layer'] = np.array([entity.is_a()])
+                    attach_mesh_metadata(mesh, entity.is_a(), color)
                     parts.append((f'{entity.Name or entity.is_a()} | {entity.GlobalId}', mesh))
             except Exception as error:
                 warnings.append(f'{entity.GlobalId}: {error}')
@@ -307,8 +324,7 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
                     mesh = pv.lines_from_points(points)
                 else:
                     skipped[kind] += 1; continue
-                mesh.field_data['plantview_rgb'] = np.array([layer_color], dtype=np.uint8)
-                mesh.field_data['plantview_layer'] = np.array([layer])
+                attach_mesh_metadata(mesh, layer, layer_color)
                 parts.append((f'{layer} | {kind}', mesh))
             except Exception: skipped[kind] += 1
         warnings.extend(f'{count} entidade(s) {kind} não suportada(s).' for kind, count in skipped.items())
@@ -320,8 +336,7 @@ def read_model(path, unit_scale=.001, progress_callback: Optional[Callable[[floa
         mesh = pv.read(str(path))
         mesh.points *= unit_scale
         color = resolve_layer_color(path.stem)
-        mesh.field_data['plantview_rgb'] = np.array([color], dtype=np.uint8)
-        mesh.field_data['plantview_layer'] = np.array([path.stem])
+        attach_mesh_metadata(mesh, path.stem, color)
         parts = [(path.stem, mesh)]
         warnings.append(f'Malha sem unidade: escala aplicada {unit_scale} m/unidade.')
         if progress_callback:

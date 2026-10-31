@@ -193,7 +193,7 @@ class NavisRibbonBar(W.QWidget):
 
         # 2. Select & Search Group
         grp_sel = NavisRibbonGroup('SELEÇÃO', page)
-        grp_sel.add_large_button('Select', 'select', lambda: None, 'Modo de seleção de componentes')
+        grp_sel.add_large_button('Select', 'select', lambda: None, 'Modo de seleção de componentes (Shift+Clique)')
         grp_sel.add_large_button('Selection\nTree', 'tree', self.window.toggle_selection_tree, 'Alternar árvore de componentes')
         v_sel = grp_sel.add_vertical_subgroup()
         b_selall = W.QToolButton()
@@ -208,7 +208,7 @@ class NavisRibbonBar(W.QWidget):
 
         # 3. Visibility Group
         grp_vis = NavisRibbonGroup('VISIBILIDADE', page)
-        grp_vis.add_large_button('Hide', 'hide', self.window.hide_selected, 'Ocultar itens selecionados', 'Ctrl+H')
+        grp_vis.add_large_button('Hide', 'hide', self.window.toggle_hide_selected, 'Ocultar ou reexibir item selecionado', 'Ctrl+H')
         grp_vis.add_large_button('Hide\nUnselected', 'isolate', self.window.isolate, 'Isolar itens selecionados')
         grp_vis.add_large_button('Unhide\nAll', 'unhide', self.window.show_all, 'Mostrar todos os componentes')
         layout.addWidget(grp_vis)
@@ -238,26 +238,27 @@ class NavisRibbonBar(W.QWidget):
         grp_nav = NavisRibbonGroup('Navigate', page)
         grp_nav.add_large_button('Look\nAround', 'look', lambda: None, 'Olhar livremente ao redor (Botão esquerdo)')
         grp_nav.add_large_button('Orbit', 'orbit', lambda: None, 'Ferramenta Orbital (Shift + Botão do meio)')
+        grp_nav.add_large_button('Undo\nView', 'reset', self.window.undo_camera, 'Desfazer vista anterior da câmera', 'Ctrl+Z')
         layout.addWidget(grp_nav)
 
         # Camera Views Group
         grp_views = NavisRibbonGroup('Views', page)
-        grp_views.add_large_button('Home\nView', 'reset', self.window.plot.view_isometric, 'Vista isométrica padrão')
+        grp_views.add_large_button('Home\nView', 'reset', self.window.view_isometric_smart, 'Vista isométrica padrão')
         
         v_views = grp_views.add_vertical_subgroup()
         b_top = W.QToolButton()
         b_top.setText('Top (Superior)')
-        b_top.clicked.connect(self.window.plot.view_xy)
+        b_top.clicked.connect(self.window.view_top_smart)
         v_views.addWidget(b_top)
 
         b_front = W.QToolButton()
         b_front.setText('Front (Frontal)')
-        b_front.clicked.connect(self.window.plot.view_xz)
+        b_front.clicked.connect(self.window.view_front_smart)
         v_views.addWidget(b_front)
 
         b_right = W.QToolButton()
         b_right.setText('Right (Lateral)')
-        b_right.clicked.connect(self.window.plot.view_yz)
+        b_right.clicked.connect(self.window.view_right_smart)
         v_views.addWidget(b_right)
         layout.addWidget(grp_views)
 
@@ -290,4 +291,3 @@ class NavisRibbonBar(W.QWidget):
 
         layout.addStretch()
         self.tabs.addTab(page, 'Review')
-

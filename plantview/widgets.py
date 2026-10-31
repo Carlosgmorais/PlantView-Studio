@@ -1,5 +1,6 @@
-"""Navisworks HUD Overlay, Coordinate Badges, and Layer Manager Dialog."""
+"""Navisworks HUD Overlay, Coordinate Badges, Layer Manager Dialog, NavCube & View Controls."""
 from typing import Dict, Tuple
+import vtk
 from PySide6 import QtCore, QtGui, QtWidgets as W
 from .colors import ACI_TABLE
 
@@ -46,6 +47,130 @@ class NavisCoordinateOverlay(W.QFrame):
         self.lbl_elev.setText(f'EL.: {z:,.3f} m'.replace(',', 'X').replace('.', ',').replace('X', '.'))
 
 
+def setup_nav_cube(interactor):
+    """Creates a 3D NavCube orientation marker in the top-right corner."""
+    cube = vtk.vtkAnnotatedCubeActor()
+    cube.SetXPlusFaceText("DIR")
+    cube.SetXMinusFaceText("ESQ")
+    cube.SetYPlusFaceText("POST")
+    cube.SetYMinusFaceText("FRENTE")
+    cube.SetZPlusFaceText("TOPO")
+    cube.SetZMinusFaceText("BASE")
+
+    cube.SetFaceTextScale(0.35)
+    cube.GetTextEdgesProperty().SetColor(0.2, 0.3, 0.45)
+    cube.GetTextEdgesProperty().SetLineWidth(1.5)
+    cube.GetCubeProperty().SetColor(0.90, 0.93, 0.96)
+
+    # Face coloring for clean industrial look
+    cube.GetXPlusFaceProperty().SetColor(0.85, 0.90, 0.95)
+    cube.GetXMinusFaceProperty().SetColor(0.85, 0.90, 0.95)
+    cube.GetYPlusFaceProperty().SetColor(0.80, 0.86, 0.92)
+    cube.GetYMinusFaceProperty().SetColor(0.80, 0.86, 0.92)
+    cube.GetZPlusFaceProperty().SetColor(0.92, 0.95, 0.98)
+    cube.GetZMinusFaceProperty().SetColor(0.75, 0.80, 0.85)
+
+    marker = vtk.vtkOrientationMarkerWidget()
+    marker.SetOrientationMarker(cube)
+    marker.SetInteractor(interactor)
+    marker.SetViewport(0.82, 0.77, 0.99, 0.99)
+    marker.SetEnabled(1)
+    marker.InteractiveOff()
+    return marker, cube
+
+
+class NavisViewControlOverlay(W.QFrame):
+    """Floating view and projection controls located in the top-right corner under NavCube."""
+    def __init__(self, window, parent=None):
+        super().__init__(parent)
+        self.window = window
+        self.setStyleSheet("""
+            NavisViewControlOverlay {
+                background: transparent;
+                border: none;
+            }
+            QToolButton {
+                background-color: rgba(240, 246, 252, 0.88);
+                border: 1px solid #a8c2dc;
+                border-radius: 4px;
+                color: #17426e;
+                font-family: 'Segoe UI', sans-serif;
+                font-size: 10px;
+                font-weight: 600;
+                padding: 3px 6px;
+                min-width: 44px;
+            }
+            QToolButton:hover {
+                background-color: #ffffff;
+                border-color: #2878cf;
+                color: #0b57d0;
+            }
+            QToolButton:pressed {
+                background-color: #cce4f7;
+            }
+        """)
+
+        layout = W.QVBoxLayout(self)
+        layout.setContentsMargins(0, 8, 10, 0)
+        layout.setAlignment(QtCore.Qt.AlignTop | QtCore.Qt.AlignRight)
+        layout.setSpacing(3)
+
+        # Space reserved for the 3D NavCube above these buttons
+        spacer = W.QWidget()
+        spacer.setFixedHeight(125)
+        spacer.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+        layout.addWidget(spacer)
+
+        # Projection toggle button: Perspectiva / Paralela
+        self.btn_proj = W.QToolButton()
+        self.btn_proj.setText('Perspectiva')
+        self.btn_proj.setToolTip('Alternar Projeção (Perspectiva / Paralela Ortográfica)')
+        self.btn_proj.clicked.connect(self.toggle_projection)
+        layout.addWidget(self.btn_proj)
+
+        # Quick view row
+        views_row = W.QHBoxLayout()
+        views_row.setSpacing(2)
+
+        b_iso = W.QToolButton()
+        b_iso.setText('Iso')
+        b_iso.setToolTip('Vista Isométrica Padrão')
+        b_iso.clicked.connect(self.window.view_isometric_smart)
+        views_row.addWidget(b_iso)
+
+        b_top = W.QToolButton()
+        b_top.setText('Topo')
+        b_top.setToolTip('Vista Superior (Plano XY)')
+        b_top.clicked.connect(self.window.view_top_smart)
+        views_row.addWidget(b_top)
+
+        b_front = W.QToolButton()
+        b_front.setText('Frente')
+        b_front.setToolTip('Vista Frontal (Plano XZ)')
+        b_front.clicked.connect(self.window.view_front_smart)
+        views_row.addWidget(b_front)
+
+        b_right = W.QToolButton()
+        b_right.setText('Lat.')
+        b_right.setToolTip('Vista Lateral Direita (Plano YZ)')
+        b_right.clicked.connect(self.window.view_right_smart)
+        views_row.addWidget(b_right)
+
+        layout.addLayout(views_row)
+
+    def toggle_projection(self):
+        self.window.toggle_projection()
+        self.update_button_label()
+
+    def update_button_label(self):
+        camera, _ = self.window.navigation.camera()
+        if camera:
+            if camera.GetParallelProjection():
+                self.btn_proj.setText('Paralela')
+            else:
+                self.btn_proj.setText('Perspectiva')
+
+
 class NavisLayerManagerDialog(W.QDialog):
     """Layer Manager & Appearance Profiler: customize DWG layer colors and visibility."""
     color_changed = QtCore.Signal(str, tuple)
@@ -85,7 +210,7 @@ class NavisLayerManagerDialog(W.QDialog):
         """)
 
         layout = W.QVBoxLayout(self)
-        
+
         info = W.QLabel('Personalize as cores originais e visibilidade de cada camada do DWG:')
         layout.addWidget(info)
 
@@ -120,7 +245,6 @@ class NavisLayerManagerDialog(W.QDialog):
 
             # Color preview swatch
             color = info['color']
-            qcolor = QtGui.QColor(*color)
             color_btn = W.QPushButton('   ')
             color_btn.setStyleSheet(f'background-color: rgb({color[0]},{color[1]},{color[2]}); border: 1px solid #333;')
             color_btn.clicked.connect(lambda _, l=layer_name, c=color: self.choose_color(l, c))
@@ -134,7 +258,6 @@ class NavisLayerManagerDialog(W.QDialog):
         self.table.itemChanged.connect(self.on_item_changed)
 
     def on_item_changed(self, item):
-        row = item.row()
         layer_text = item.text().split(' (')[0].strip()
         visible = (item.checkState() == QtCore.Qt.Checked)
         self.layer_manager.set_visible(layer_text, visible)
@@ -148,4 +271,3 @@ class NavisLayerManagerDialog(W.QDialog):
             self.layer_manager.set_color(layer_name, new_rgb)
             self.color_changed.emit(layer_name, new_rgb)
             self.populate()
-

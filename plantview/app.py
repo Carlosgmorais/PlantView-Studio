@@ -24,7 +24,7 @@ from .colors import LayerManager, resolve_layer_color
 from .icons import create_navis_icon
 from .ribbon import NavisRibbonBar
 from .loading_dialog import NavisLoadingDialog
-from .widgets import NavisCoordinateOverlay, NavisLayerManagerDialog
+from .widgets import NavisCoordinateOverlay, NavisLayerManagerDialog, setup_nav_cube, NavisViewControlOverlay
 
 
 class ImportWorker(QtCore.QThread):
@@ -79,6 +79,8 @@ class Window(W.QMainWindow):
         self.total_triangles = 0
         self.layer_manager = LayerManager()
         self.selected_actor = None
+        self.last_picked_actor = None
+        self.drill_down_idx = 0
         self.fps_counter = 0
         self.fps_last_time = time.time()
         self.current_fps = 60.0
@@ -126,7 +128,15 @@ class Window(W.QMainWindow):
             on_change=self.on_camera_changed,
             on_refresh=self.refresh_models
         )
+        self.navigation.on_shift_pick = self.on_shift_pick
         self.plot.interactor.SetInteractorStyle(self.navigation)
+
+        # 3D NavCube Orientation Marker in top-right corner
+        self.nav_marker, self.nav_cube = setup_nav_cube(self.plot.interactor)
+
+        # Floating View and Projection Controls Overlay (under NavCube)
+        self.view_overlay = NavisViewControlOverlay(self, viewport_container)
+        vp_layout.addWidget(self.view_overlay)
 
         # Floating Navisworks Coordinate Overlay in bottom-left
         self.coord_overlay = NavisCoordinateOverlay(viewport_container)
@@ -148,7 +158,6 @@ class Window(W.QMainWindow):
 
         # Picking installs another style; restore our navigation after its setup.
         self.plot.interactor.SetInteractorStyle(self.navigation)
-        self.plot.camera.ParallelProjectionOff()
 
         # Welcome text in 3D scene
         self.plot.add_text(
@@ -177,6 +186,13 @@ class Window(W.QMainWindow):
         self.log_dock.setMaximumHeight(160)
         self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.log_dock)
 
+        # Shortcuts
+        self.shortcut_undo_cam = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+Z'), self)
+        self.shortcut_undo_cam.activated.connect(self.undo_camera)
+
+        self.shortcut_hide = QtGui.QShortcut(QtGui.QKeySequence('Ctrl+H'), self)
+        self.shortcut_hide.activated.connect(self.toggle_hide_selected)
+
         # FPS & Performance Timer (Updates every 1000ms)
         self.perf_timer = QtCore.QTimer(self)
         self.perf_timer.timeout.connect(self.update_performance_status)
@@ -184,7 +200,7 @@ class Window(W.QMainWindow):
 
         # Initial Status Bar Message
         self.statusBar().showMessage(
-            'Pronto | Olhar: Botão esquerdo • Pan: Botão meio • Orbit: Shift + Botão meio • Zoom: Scroll • F5: Atualizar'
+            'Pronto | Olhar: Botão esquerdo • Pan: Botão meio • Orbit: Shift + Botão meio • Zoom: Scroll • F5: Atualizar • Ctrl+Z: Desfazer câmera'
         )
         self.log.appendPlainText('PlantView Studio 2026 v0.0.2 iniciado com renderização OpenGL acelerada por GPU.')
 
@@ -214,6 +230,72 @@ class Window(W.QMainWindow):
             f'Modelos: {len(self.models)} federados'
         )
         self.statusBar().showMessage(msg)
+
+    def undo_camera(self):
+        """Ctrl+Z: Revert camera to previous position/angle."""
+        if self.navigation.undo_camera():
+            self.statusBar().showMessage('Câmera restaurada para a vista anterior (Ctrl+Z).')
+            if hasattr(self, 'view_overlay'):
+                self.view_overlay.update_button_label()
+
+    def toggle_projection(self):
+        """Toggle camera projection between perspective and parallel (orthogonal)."""
+        camera, _ = self.navigation.camera()
+        if camera:
+            self.save_camera_for_undo()
+            is_parallel = camera.GetParallelProjection()
+            if is_parallel:
+                camera.ParallelProjectionOff()
+                self.statusBar().showMessage('Projeção: Perspectiva 3D')
+            else:
+                camera.ParallelProjectionOn()
+                self.statusBar().showMessage('Projeção: Paralela (Ortográfica)')
+            self.plot.render()
+            if hasattr(self, 'view_overlay'):
+                self.view_overlay.update_button_label()
+
+    def set_perspective(self):
+        camera, _ = self.navigation.camera()
+        if camera:
+            self.save_camera_for_undo()
+            camera.ParallelProjectionOff()
+            self.plot.render()
+            if hasattr(self, 'view_overlay'):
+                self.view_overlay.update_button_label()
+            self.statusBar().showMessage('Projeção: Perspectiva 3D')
+
+    def set_orthogonal(self):
+        camera, _ = self.navigation.camera()
+        if camera:
+            self.save_camera_for_undo()
+            camera.ParallelProjectionOn()
+            self.plot.render()
+            if hasattr(self, 'view_overlay'):
+                self.view_overlay.update_button_label()
+            self.statusBar().showMessage('Projeção: Paralela (Ortográfica)')
+
+    def save_camera_for_undo(self):
+        self.navigation.save_camera_state()
+
+    def view_isometric_smart(self):
+        self.save_camera_for_undo()
+        self.plot.view_isometric()
+        self.plot.render()
+
+    def view_top_smart(self):
+        self.save_camera_for_undo()
+        self.plot.view_xy()
+        self.plot.render()
+
+    def view_front_smart(self):
+        self.save_camera_for_undo()
+        self.plot.view_xz()
+        self.plot.render()
+
+    def view_right_smart(self):
+        self.save_camera_for_undo()
+        self.plot.view_yz()
+        self.plot.render()
 
     def add_files(self):
         paths, _ = W.QFileDialog.getOpenFileNames(
@@ -317,8 +399,10 @@ class Window(W.QMainWindow):
 
         # Register layers in LayerManager
         for name, mesh in parts:
-            layer_data = mesh.field_data.get('plantview_layer')
-            layer = str(layer_data[0]) if layer_data is not None else '0'
+            layer = getattr(mesh, '_plantview_layer', None)
+            if not layer:
+                layer_data = mesh.field_data.get('plantview_layer')
+                layer = str(layer_data[0]) if layer_data is not None and len(layer_data) > 0 else '0'
             color_data = mesh.field_data.get('plantview_rgb')
             rgb = tuple(int(x) for x in color_data[0]) if color_data is not None else None
             self.layer_manager.register(layer, rgb)
@@ -328,13 +412,17 @@ class Window(W.QMainWindow):
         record['actors'].extend(actors)
         self.total_triangles += stats.get('total_triangles', sum(getattr(m, 'n_cells', 1) for _, m in parts))
 
-        # Populate hierarchy tree
+        # Populate hierarchy tree with checkable items
         for actor, name in zip(actors, names):
             child = W.QTreeWidgetItem([name])
+            child.setFlags(child.flags() | QtCore.Qt.ItemIsUserCheckable)
+            child.setCheckState(0, QtCore.Qt.Checked if record['visible'] else QtCore.Qt.Unchecked)
             child.setData(0, QtCore.Qt.UserRole, actor)
             root.addChild(child)
             for component_name in getattr(actor, '_plantview_names', []):
                 component = W.QTreeWidgetItem([component_name])
+                component.setFlags(component.flags() | QtCore.Qt.ItemIsUserCheckable)
+                component.setCheckState(0, QtCore.Qt.Checked if record['visible'] else QtCore.Qt.Unchecked)
                 component.setData(0, QtCore.Qt.UserRole, actor)
                 child.addChild(component)
 
@@ -361,7 +449,6 @@ class Window(W.QMainWindow):
         if previous is None and record['visible']:
             self.plot.reset_camera()
 
-        self.plot.camera.ParallelProjectionOff()
         self.dirty = True
         self.log.appendPlainText(f'Carregado: {len(parts)} peça(s) com cores preservadas.')
         for w in warnings[:50]:
@@ -381,8 +468,6 @@ class Window(W.QMainWindow):
         to_reload = []
         for m in self.models:
             path = m['path']
-            current_mtime = os.path.getmtime(path) if os.path.exists(path) else 0
-            # Always reload or reload modified
             to_reload.append(dict(
                 path=m['path'],
                 visible=m['visible'],
@@ -416,7 +501,7 @@ class Window(W.QMainWindow):
 
     def visibility_changed(self, item, column):
         """Toggles model or group visibility from the selection tree."""
-        # Check if top-level model
+        # Top-level model
         for model in self.models:
             if model['item'] is item:
                 model['visible'] = (item.checkState(0) == QtCore.Qt.Checked)
@@ -426,32 +511,143 @@ class Window(W.QMainWindow):
                 self.plot.render()
                 return
 
+        # Child node (actor or component)
+        actor = item.data(0, QtCore.Qt.UserRole)
+        if actor and isinstance(actor, vtk.vtkActor):
+            visible = (item.checkState(0) == QtCore.Qt.Checked)
+            actor.SetVisibility(visible)
+            self.dirty = True
+            self.plot.render()
+
     def isolate(self):
         """Isolate: Hides everything except selected item."""
         selected_items = self.tree.selectedItems()
         if not selected_items:
             return
         target = selected_items[0]
-        # Check if top level
         for m in self.models:
             is_match = (m['item'] is target)
             m['item'].setCheckState(0, QtCore.Qt.Checked if is_match else QtCore.Qt.Unchecked)
 
-    def hide_selected(self):
-        """Hide: Hides the currently selected model or component."""
+    def toggle_hide_selected(self):
+        """Alterna a visibilidade (oculta/exibe) do modelo ou componente selecionado (Ctrl+H)."""
         selected_items = self.tree.selectedItems()
-        if not selected_items:
-            return
-        target = selected_items[0]
-        for m in self.models:
-            if m['item'] is target:
-                m['item'].setCheckState(0, QtCore.Qt.Unchecked)
+        if selected_items:
+            target = selected_items[0]
+            # Caso seja o modelo raiz (arquivo federado)
+            for m in self.models:
+                if m['item'] is target:
+                    new_vis = not m['visible']
+                    m['visible'] = new_vis
+                    target.setCheckState(0, QtCore.Qt.Checked if new_vis else QtCore.Qt.Unchecked)
+                    for actor in m['actors']:
+                        actor.SetVisibility(new_vis)
+                    self.dirty = True
+                    self.plot.render()
+                    action = 'reexibido' if new_vis else 'ocultado'
+                    self.statusBar().showMessage(f'Modelo {action}: {target.text(0)} (Ctrl+H para alternar)')
+                    return
+
+            # Caso seja um nó filho (ator individual ou componente)
+            actor = target.data(0, QtCore.Qt.UserRole)
+            current_state = target.checkState(0)
+            new_state = QtCore.Qt.Checked if current_state == QtCore.Qt.Unchecked else QtCore.Qt.Unchecked
+            target.setCheckState(0, new_state)
+            is_vis = (new_state == QtCore.Qt.Checked)
+            if actor and isinstance(actor, vtk.vtkActor):
+                actor.SetVisibility(is_vis)
+                self.dirty = True
+                self.plot.render()
+                action = 'reexibido' if is_vis else 'ocultado'
+                self.statusBar().showMessage(f'Elemento {action}: {target.text(0)} (Ctrl+H para alternar)')
                 return
+
+        # Se houver selected_actor no viewport diretamente
+        if self.selected_actor and isinstance(self.selected_actor, vtk.vtkActor):
+            is_vis = not self.selected_actor.GetVisibility()
+            self.selected_actor.SetVisibility(is_vis)
+            self.dirty = True
+            self.plot.render()
+            action = 'reexibido' if is_vis else 'ocultado'
+            self.statusBar().showMessage(f'Elemento {action} (Ctrl+H para alternar)')
+
+    def hide_selected(self):
+        """Compatibilidade: chama toggle_hide_selected."""
+        self.toggle_hide_selected()
 
     def show_all(self):
         """Unhide All: Shows all models and components."""
         for m in self.models:
             m['item'].setCheckState(0, QtCore.Qt.Checked)
+            for actor in m['actors']:
+                actor.SetVisibility(True)
+        self.plot.render()
+        self.statusBar().showMessage('Todos os modelos e componentes foram reexibidos.')
+
+    def on_shift_pick(self, x, y):
+        """Shift + Left Click: Navisworks hierarchy drill-down selection."""
+        renderer = self.plot.renderer
+        if not renderer:
+            return
+        picker = vtk.vtkPropPicker()
+        if not picker.Pick(x, y, 0, renderer):
+            return
+        picked_actor = picker.GetActor()
+        if not picked_actor:
+            return
+
+        matching_items = []
+        for i in range(self.tree.topLevelItemCount()):
+            root_item = self.tree.topLevelItem(i)
+            model_record = next((m for m in self.models if m['item'] is root_item), None)
+            if not model_record or picked_actor not in model_record['actors']:
+                continue
+
+            matching_items.append(root_item)
+            for c in range(root_item.childCount()):
+                child = root_item.child(c)
+                if child.data(0, QtCore.Qt.UserRole) == picked_actor:
+                    matching_items.append(child)
+                    for gc in range(child.childCount()):
+                        gchild = child.child(gc)
+                        matching_items.append(gchild)
+
+        if not matching_items:
+            self._highlight_actor(picked_actor)
+            return
+
+        # Drill-down cíclico estilo Navisworks
+        if self.last_picked_actor == picked_actor:
+            self.drill_down_idx = (self.drill_down_idx + 1) % len(matching_items)
+        else:
+            self.last_picked_actor = picked_actor
+            self.drill_down_idx = 1 if len(matching_items) > 1 else 0
+
+        target_item = matching_items[self.drill_down_idx]
+
+        # Expande ancestrais e seleciona
+        p = target_item.parent()
+        while p:
+            p.setExpanded(True)
+            p = p.parent()
+
+        self.tree.setCurrentItem(target_item)
+        self.tree.scrollToItem(target_item)
+        target_item.setSelected(True)
+
+        self._highlight_actor(picked_actor)
+        self.statusBar().showMessage(
+            f'Elemento selecionado: {target_item.text(0)} | Use Ctrl+H para alternar ocultar/exibir'
+        )
+
+    def _highlight_actor(self, actor):
+        if self.selected_actor and self.selected_actor != actor:
+            self.selected_actor.GetProperty().SetEdgeVisibility(False)
+        self.selected_actor = actor
+        actor.GetProperty().SetEdgeVisibility(True)
+        actor.GetProperty().SetEdgeColor(1.0, 0.84, 0.0)  # Navisworks Gold
+        actor.GetProperty().SetLineWidth(2.5)
+        self.plot.render()
 
     def select_same_layer(self):
         """Selects all items belonging to the same layer as the active item."""
@@ -477,7 +673,7 @@ class Window(W.QMainWindow):
         layer = getattr(self.selected_actor, '_plantview_layer', '0')
         bounds = getattr(self.selected_actor, '_plantview_bounds', None)
         pos = self.selected_actor.GetPosition()
-        
+
         info = [
             f'Nome do Elemento: {name}',
             f'Camada (Layer): {layer}',
@@ -542,18 +738,6 @@ class Window(W.QMainWindow):
             self.plot.add_mesh(pv.Line(a, b), color='#ffcc00', line_width=4, name='measure', pickable=False, reset_camera=False)
             self.log.appendPlainText(f'MEDIDA: Distância = {dist:.4f} m ({dist * 1000:.1f} mm) | A={a.round(4)} | B={b.round(4)}')
             self.measure_points = []
-
-    def set_perspective(self):
-        camera, _ = self.navigation.camera()
-        if camera:
-            camera.ParallelProjectionOff()
-            self.plot.render()
-
-    def set_orthogonal(self):
-        camera, _ = self.navigation.camera()
-        if camera:
-            camera.ParallelProjectionOn()
-            self.plot.render()
 
     def show_gpu_info(self):
         self.plot.render()

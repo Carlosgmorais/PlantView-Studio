@@ -89,8 +89,10 @@ def add_optimized_parts(plot, parts, visible=True) -> Tuple[List[Any], List[str]
     for name, mesh in parts:
         color_data = mesh.field_data.get('plantview_rgb')
         color = tuple(int(x)/255. for x in color_data[0]) if color_data is not None else (.74, .79, .83)
-        layer_data = mesh.field_data.get('plantview_layer')
-        layer = str(layer_data[0]) if layer_data is not None else '0'
+        layer = getattr(mesh, '_plantview_layer', None)
+        if not layer:
+            layer_data = mesh.field_data.get('plantview_layer')
+            layer = str(layer_data[0]) if layer_data is not None and len(layer_data) > 0 else '0'
         sig = geometry_fingerprint(mesh)
         if sig is None:
             continue

@@ -4,8 +4,10 @@ Controles Navisworks:
 - Botão esquerdo arrastar: Olhar ao redor livremente (Look Around em primeira pessoa, gira no próprio eixo).
 - Botão do meio (scroll pressionado) arrastar: Pan suave (deslocamento lateral e vertical).
 - Shift + Botão do meio (scroll pressionado) arrastar: Ferramenta Orbital (Orbit clássico do Navisworks em torno do ponto de interesse).
-- Scroll (rodinha): Avançar / recuar (zoom suave na direção da visão).
+- Scroll (rodinha): Avançar / recuar (zoom suave na direção da visão em perspectiva ou escala em paralela).
 - Shift + qualquer movimento: Aumenta a velocidade de navegação.
+- Shift + Clique esquerdo: Drill-down seleção de elementos na hierarquia da árvore.
+- Ctrl + Z: Desfazer movimento / vista anterior da câmera.
 - Sem movimentação WASD.
 - F5: Atalho para atualizar modelos.
 """
@@ -21,6 +23,9 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
         self.previous = None
         self.on_change = on_change
         self.on_refresh = on_refresh
+        self.camera_history = []
+        self._pre_movement_state = None
+        self.on_shift_pick = None
         
         # Event observers
         self.AddObserver('LeftButtonPressEvent', self.left_down)
@@ -46,19 +51,101 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
         if not renderer:
             return None, None
         camera = renderer.GetActiveCamera()
-        camera.ParallelProjectionOff()
         return camera, renderer
+
+    def push_camera_state(self, state):
+        if not self.camera_history or self.camera_history[-1] != state:
+            self.camera_history.append(state)
+            if len(self.camera_history) > 50:
+                self.camera_history.pop(0)
+
+    def save_camera_state(self):
+        camera, _ = self.camera()
+        if not camera:
+            return
+        state = (
+            camera.GetPosition(),
+            camera.GetFocalPoint(),
+            camera.GetViewUp(),
+            camera.GetParallelProjection(),
+            camera.GetParallelScale()
+        )
+        self.push_camera_state(state)
+
+    def _record_pre_movement(self):
+        camera, _ = self.camera()
+        if not camera:
+            return
+        self._pre_movement_state = (
+            camera.GetPosition(),
+            camera.GetFocalPoint(),
+            camera.GetViewUp(),
+            camera.GetParallelProjection(),
+            camera.GetParallelScale()
+        )
+
+    def _commit_pre_movement(self):
+        if self._pre_movement_state is None:
+            return
+        camera, _ = self.camera()
+        if camera:
+            curr = (
+                camera.GetPosition(),
+                camera.GetFocalPoint(),
+                camera.GetViewUp(),
+                camera.GetParallelProjection(),
+                camera.GetParallelScale()
+            )
+            diff = any(
+                abs(a - b) > 1e-4
+                for a, b in zip(self._pre_movement_state[0] + self._pre_movement_state[1],
+                                curr[0] + curr[1])
+            ) or self._pre_movement_state[3] != curr[3]
+            if diff:
+                self.push_camera_state(self._pre_movement_state)
+        self._pre_movement_state = None
+
+    def undo_camera(self):
+        if not self.camera_history:
+            return False
+        state = self.camera_history.pop()
+        pos, focal, up, proj, scale = state
+        camera, renderer = self.camera()
+        if not camera or not renderer:
+            return False
+        camera.SetPosition(*pos)
+        camera.SetFocalPoint(*focal)
+        camera.SetViewUp(*up)
+        if proj:
+            camera.ParallelProjectionOn()
+            camera.SetParallelScale(scale)
+        else:
+            camera.ParallelProjectionOff()
+        renderer.ResetCameraClippingRange()
+        interactor = self.GetInteractor()
+        if interactor:
+            interactor.Render()
+        if self.on_change:
+            self.on_change(camera)
+        return True
 
     def left_down(self, obj, event):
         interactor = self.GetInteractor()
+        if interactor and interactor.GetShiftKey():
+            pos = interactor.GetEventPosition()
+            if self.on_shift_pick:
+                self.on_shift_pick(pos[0], pos[1])
+                return
         self.previous = interactor.GetEventPosition()
         self.drag_mode = 'look'
+        self._record_pre_movement()
         if interactor and interactor.GetRenderWindow():
             interactor.GetRenderWindow().SetDesiredUpdateRate(30.0)
 
     def middle_down(self, obj, event):
         interactor = self.GetInteractor()
         self.previous = interactor.GetEventPosition()
+        self._record_pre_movement()
         if interactor and interactor.GetRenderWindow():
             interactor.GetRenderWindow().SetCurrentCursor(9)
             interactor.GetRenderWindow().SetDesiredUpdateRate(30.0)
@@ -71,12 +158,14 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
         interactor = self.GetInteractor()
         self.previous = interactor.GetEventPosition()
         self.drag_mode = 'look'
+        self._record_pre_movement()
         if interactor and interactor.GetRenderWindow():
             interactor.GetRenderWindow().SetDesiredUpdateRate(30.0)
 
     def mouse_up(self, obj, event):
         self.drag_mode = None
         self.previous = None
+        self._commit_pre_movement()
         interactor = self.GetInteractor()
         if interactor and interactor.GetRenderWindow():
             interactor.GetRenderWindow().SetCurrentCursor(0)
@@ -157,7 +246,8 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
             pitch = math.atan2(view_vec[2], max(horiz_dist, 1e-9))
 
             sens = 0.005 * speed
-            yaw += dx * sens
+            # Direção corrigida: arrastar para esquerda gira câmera para esquerda; direita para direita
+            yaw -= dx * sens
             pitch = np.clip(pitch - dy * sens, -math.radians(88.5), math.radians(88.5))
 
             cos_pitch = math.cos(pitch)
@@ -193,7 +283,10 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
 
             rw_size = interactor.GetRenderWindow().GetSize()
             height = max(rw_size[1], 1)
-            step = 2.0 * dist * math.tan(math.radians(camera.GetViewAngle()) / 2.0) / height
+            if camera.GetParallelProjection():
+                step = 2.0 * camera.GetParallelScale() / height
+            else:
+                step = 2.0 * dist * math.tan(math.radians(camera.GetViewAngle()) / 2.0) / height
             offset = (-dx * right - dy * up) * step * speed
 
             camera.SetPosition(*(eye + offset))
@@ -205,28 +298,35 @@ class NavisworksStyle(vtk.vtkInteractorStyleUser):
             self.on_change(camera)
 
     def dolly(self, direction):
-        """Scroll wheel navigation: smooth movement in camera viewing direction."""
+        """Scroll wheel navigation: smooth movement in camera viewing direction or scale in parallel."""
         camera, renderer = self.camera()
         if not camera or not renderer:
             return
 
-        eye = np.array(camera.GetPosition(), dtype=float)
-        focal = np.array(camera.GetFocalPoint(), dtype=float)
-        view = focal - eye
-        dist = np.linalg.norm(view)
-        if dist < 1e-9:
-            return
-
+        self._record_pre_movement()
         interactor = self.GetInteractor()
         speed = 2.5 if interactor and interactor.GetShiftKey() else 1.0
-        
-        # Smooth navigation: move along viewing direction with proportional step
-        step = max(dist * 0.15 * speed, 0.05) * direction
-        movement = (view / dist) * step
-        
-        camera.SetPosition(*(eye + movement))
-        camera.SetFocalPoint(*(focal + movement))
+
+        if camera.GetParallelProjection():
+            scale = camera.GetParallelScale()
+            factor = 0.85 if direction > 0 else 1.15
+            if speed > 1.0:
+                factor = 0.70 if direction > 0 else 1.30
+            camera.SetParallelScale(max(scale * factor, 1e-4))
+        else:
+            eye = np.array(camera.GetPosition(), dtype=float)
+            focal = np.array(camera.GetFocalPoint(), dtype=float)
+            view = focal - eye
+            dist = np.linalg.norm(view)
+            if dist < 1e-9:
+                return
+            step = max(dist * 0.15 * speed, 0.05) * direction
+            movement = (view / dist) * step
+            camera.SetPosition(*(eye + movement))
+            camera.SetFocalPoint(*(focal + movement))
+
         renderer.ResetCameraClippingRange()
         interactor.Render()
+        self._commit_pre_movement()
         if self.on_change:
             self.on_change(camera)
